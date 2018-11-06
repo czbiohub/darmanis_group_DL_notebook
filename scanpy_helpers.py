@@ -16,6 +16,7 @@ import random
 from importlib import reload
 import subprocess
 import pickle
+import tqdm
 
 # sc analysis
 import scanpy.api as sc
@@ -428,8 +429,9 @@ def classify_type(raw_adata, clustered_adata, type_dict, col_name):
     type_list = ['unknown'] * len(raw_adata.obs)
     
     for key,value in type_dict.items():
-        clustered_names = [name for name,cluster in zip(clustered_adata.obs['louvain'], clustered_adata.obs_names) if cluster in value]  
-        value_idx = [idx for idx,x in enumerate(raw_adata.obs_names.tolist()) if x in clustered_names]
+        clustered_names = [name for x.obs['lou'],name in zip(clustered_adata.obs['louvain'], 
+                                                             clustered_adata.obs_names) if cluster in value]  
+        value_idx = [idx for idx,x in enumerate(raw_adata.obs_names) if x in clustered_names]
         for x in value_idx:
             type_list[x] = key
             
@@ -453,13 +455,13 @@ def rank_genes (input_adata, n_genes=100, method='wilcoxon', plot=False, rankby_
     
     return df_rank
 
-def push_rank (df_rank, feature_dict, wkdir, s3dir):
+def push_rank (df_rank, feature_dict, wkdir, s3dir, method):
     # save CSV of gene list to output to S3
-    # Input: df of ranks + subsetting feature dictionary + local/s3 paths
+    # Input: df of ranks + subsetting feature dictionary + local/s3 paths + method string
     # Output: push to s3
     
     id_string = '_'.join(['{}.{}'.format(key,'-'.join(value)) for key,value in feature_dict.items()])
-    rank_fn = 'GeneRank_{}.csv'.format(id_string)
+    rank_fn = 'GeneRank_{}_{}.csv'.format(method, id_string)
     rank_path = '{}/{}'.format(wkdir, rank_fn)
     df_rank.to_csv(rank_path)
     s3_cmd = 'aws s3 cp --quiet {}/{} s3://{}/'.format(wkdir,rank_fn,s3dir)
