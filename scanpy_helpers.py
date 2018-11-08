@@ -9,6 +9,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn import preprocessing
+from sklearn.metrics import f1_score
 from IPython.core.display import HTML
 import numpy.ma as ma # masking package
 import statsmodels.api as sm
@@ -74,23 +75,16 @@ def create_adata (pre_adata):
     # pd df to np array
     array_adata = pre_adata.values
 
-    # drop first column containing gene names
-    array_adata = array_adata[:,1:]
-
-    # print annotation features
-    # print(list(anno)[1:])
-
     # extract obs and var
-    obs = pre_adata.columns[1:]
-    gene_names = pre_adata.iloc[:,0].tolist()
-    var = pd.DataFrame()
-    var['gene_symbols'] = gene_names
+    obs = pre_adata.columns.tolist()
+    gene_names = pre_adata.index.tolist()
+    var = pd.DataFrame({'gene_symbols':gene_names})
     
     # create ad obj
     adata = ad.AnnData(X=array_adata).T
     adata.X = sparse.csr_matrix(adata.X)
-    adata.var_names = var.gene_symbols.values
-    adata.var_names_make_unique()
+    adata.var_names = gene_names
+#     adata.var_names_make_unique()
     adata.obs_names = obs
     
     # summary
@@ -111,9 +105,6 @@ def append_anno (adata, anno, anno_dict):
     # append metadata of choice
     for key,value in anno_dict.items():
         adata.obs[key] = eval('anno.{}.values'.format(value))
-        
-    # add idx for counting
-    adata.obs['count_idx'] = [x for x in range(len(adata))]
     
     # summary
     sum_output (adata)
@@ -377,7 +368,6 @@ def class2class_reg (X, y, test_size=0.33):
         y_pred = clf.predict(X_test)
 
         # try label-sized adjusted f1 score
-        from sklearn.metrics import f1_score
         acc  = f1_score(y_pred=y_pred, y_true=y_test,average='weighted')
     
     # psuedo R2
@@ -429,7 +419,7 @@ def classify_type(raw_adata, clustered_adata, type_dict, col_name):
     type_list = ['unknown'] * len(raw_adata.obs)
     
     for key,value in type_dict.items():
-        clustered_names = [name for x.obs['lou'],name in zip(clustered_adata.obs['louvain'], 
+        clustered_names = [name for cluster,name in zip(clustered_adata.obs['louvain'], 
                                                              clustered_adata.obs_names) if cluster in value]  
         value_idx = [idx for idx,x in enumerate(raw_adata.obs_names) if x in clustered_names]
         for x in value_idx:
@@ -516,3 +506,43 @@ def lookup_gene(symbol, u, warnings=False):
     go = res[1]
     
     return annote, go
+
+def reset_functions():
+    # Helper to force import
+    for it in range(2):
+        eval('from scanpy_helpers import *')
+        reload(scanpy_helpers)
+    print('Import complete')
+    
+def continuous2class_reg (X, y, test_size=0.33):
+    # Logistic regression and returns accuracy
+    # Input: list/array of predictors (numeric) and list of responses (categorical = str)
+    # Output: accuracy value
+
+    pred = X # must be continuous
+    res = y # must be categorical
+    pred = pred.reshape(-1,1)
+    res = res.reshape(-1,1)
+    
+    if len(np.unique(res)) == 1:
+        acc = 0
+    else:
+        X_train, X_test, y_train, y_test = train_test_split(pred,
+                                                            res,
+                                                            test_size=test_size, random_state=42)
+        # accurcy
+        clf = LogisticRegression(multi_class='auto')
+        clf.fit(X_train, y_train)
+        acc = clf.score(X_test, y_test)
+        y_pred = clf.predict(X_test)
+
+        # try label-sized adjusted f1 score
+        acc  = f1_score(y_pred=y_pred, y_true=y_test,average='weighted')
+    
+    # psuedo R2
+#     logit = sm.MNLogit(y_train, X_train)
+#     result = logit.fit()
+#     summ_df = pd.read_html(result.summary().tables[0].as_html())[0]
+#     pseudo_r2 = summ_df.iloc[3,3]
+    
+    return acc #, pseudo_r2
