@@ -1,23 +1,23 @@
 # base
 import pandas as pd
-from pandas.api.types import CategoricalDtype
+from pandas.api.types import CategoricalDtype, is_categorical_dtype
 import numpy as np
 from scipy import sparse, stats
 import warnings
-from scipy.stats.stats import pearsonr
+import scipy.stats as ss
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn import preprocessing
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, roc_auc_score
 from IPython.core.display import HTML
 import numpy.ma as ma # masking package
 import statsmodels.api as sm
 import random
-from importlib import reload
 import subprocess
 import pickle
 import tqdm
+from itertools import combinations, permutations
 
 # sc analysis
 import scanpy.api as sc
@@ -33,6 +33,74 @@ import matplotlib as mp
 # uniprot api
 from bioservices import UniProt
 u = UniProt()
+
+### ref scanpy docs
+def prepare_dataframe(adata, var_names, groupby=None, use_raw=None, log=False, num_categories=7):
+    """
+    Given the anndata object, prepares a data frame in which the row index are the categories
+    defined by group by and the columns correspond to var_names.
+    Parameters
+    ----------
+    adata : :class:`~anndata.AnnData`
+        Annotated data matrix.
+    var_names : `str` or list of `str`
+        `var_names` should be a valid subset of  `adata.var_names`.
+    groupby : `str` or `None`, optional (default: `None`)
+        The key of the observation grouping to consider. It is expected that
+        groupby is a categorical. If groupby is not a categorical observation,
+        it would be subdivided into `num_categories`.
+    log : `bool`, optional (default: `False`)
+        Use the log of the values
+    use_raw : `bool`, optional (default: `None`)
+        Use `raw` attribute of `adata` if present.
+    num_categories : `int`, optional (default: `7`)
+        Only used if groupby observation is not categorical. This value
+        determines the number of groups into which the groupby observation
+        should be subdivided.
+    Returns
+    -------
+    Tuple of `pandas.DataFrame` and list of categories.
+    """
+    from scipy.sparse import issparse
+#     sanitize_anndata(adata)
+    if use_raw is None and adata.raw is not None: use_raw = True
+    if isinstance(var_names, str):
+        var_names = [var_names]
+
+    if groupby is not None:
+        if groupby not in adata.obs_keys():
+            raise ValueError('groupby has to be a valid observation. Given value: {}, '
+                             'valid observations: {}'.format(groupby, adata.obs_keys()))
+
+    if use_raw:
+        matrix = adata.raw[:, var_names].X
+    else:
+        matrix = adata[:, var_names].X
+
+    if issparse(matrix):
+        matrix = matrix.toarray()
+    if log:
+        matrix = np.log1p(matrix)
+
+    obs_tidy = pd.DataFrame(matrix, columns=var_names)
+    if groupby is None:
+        groupby = ''
+        categorical = pd.Series(np.repeat('', len(obs_tidy))).astype('category')
+    else:
+        if not is_categorical_dtype(adata.obs[groupby]):
+            # if the groupby column is not categorical, turn it into one
+            # by subdividing into  `num_categories` categories
+            categorical = pd.cut(adata.obs[groupby], num_categories)
+        else:
+            categorical = adata.obs[groupby]
+
+    obs_tidy.set_index(categorical, groupby, inplace=True)
+    categories = obs_tidy.index.categories
+
+    return categories, obs_tidy
+###
+
+
 
 def gene2exp (gene_str, adata):
     # Create array of transformed expression values from given gene symbol string
@@ -84,7 +152,6 @@ def create_adata (pre_adata):
     adata = ad.AnnData(X=array_adata).T
     adata.X = sparse.csr_matrix(adata.X)
     adata.var_names = gene_names
-#     adata.var_names_make_unique()
     adata.obs_names = obs
     
     # summary
@@ -126,40 +193,60 @@ def remove_ercc (adata):
     
     return adata
 
-def process_adata (adata, min_counts=50000, min_genes=500, min_disp=0.1, min_mean=1e-3, max_mean=1e3):
+def technical_filters (adata, min_genes=500,min_counts=50000,min_cells=3):
+    # remove cells/genes based on low quality
+    # input: adata
+    # output: inplace
+    print('Remove low-quality cells/genes...')
+    print('\tInitial:')
+    sum_output (adata)
+    
+    sc.pp.filter_cells(adata, min_genes=min_genes)
+    sc.pp.filter_cells(adata, min_counts=min_counts)
+    sc.pp.filter_genes(adata, min_cells=min_cells)
+    
+    print('\tResult:')   
+    sum_output (adata)
+
+def process_adata (adata, 
+                  min_mean=0.0125, 
+                  max_mean=10, 
+                  min_disp=0.1):
     # Add cell and gene filters, perform data scale/transform
-    # Input: adata obj + filter options (below) + plotting option
-        # min_count = int
-        # min_genes = int
-        # min_mean = float
-        # max_mean = float
-        # min_disp = float
+    # Input: adata obj + filter options (below)
     # Output: updated adata obj
     
     print('Process expression data...')
-    print('\tInitial values:')
+    print('\tInitial:')
     sum_output(adata)
-    print('min counts per cell(min_counts): {}'.format(min_counts))
-    print('min genes per cell(min_genes): {}'.format(min_genes))
-    print('min expression dispersion(min_disp): {}'.format(min_disp))
-    print('min mean expression(min_mean): {}'.format(min_mean))
-    print('max mean expression(max_mean): {}'.format(max_mean))
+
+    print('min mean expression (min_mean): {}'.format(min_mean))
+    print('max mean expression (max_mean)): {}'.format(max_mean))
+    print('min dispresion (min_disp): {}'.format(min_disp))
+    
+    # normalize counts per cell
+    tmp = sc.pp.normalize_per_cell(adata, copy=True)
     
     # filter cells based on min genes and min counts cutoff
-    tmp = sc.pp.filter_cells(adata, min_counts= min_counts, copy=True)
-    sc.pp.filter_cells(tmp, min_genes=min_genes)
-
-    # filter genes by dispersion
-    sc.pp.filter_genes_dispersion(tmp, min_disp=min_disp, min_mean=min_mean, max_mean=max_mean)
+    filter_result = sc.pp.filter_genes_dispersion(tmp.X, 
+                                                  min_mean=min_mean, 
+                                                  max_mean=max_mean, 
+                                                  min_disp=min_disp)
+    tmp = tmp[:, filter_result.gene_subset]
     
-    # scale and transform expression
+    # log transform expression
     sc.pp.log1p(tmp)
+    
+    # regress out total counts
+    sc.pp.regress_out(tmp, ['total_counts'])
+    
+    # mean-center and unit variance scaling
     sc.pp.scale(tmp)
     
     # summary
     print('Filtered cells: {}'.format(len(adata.obs) - len(tmp.obs)))
     print('Filtered genes: {}'.format(len(adata.var_names) - len(tmp.var_names)))
-    print('\tFinal values:')
+    print('\tResult:')
     sum_output (tmp)
     
     return tmp
@@ -364,19 +451,12 @@ def class2class_reg (X, y, test_size=0.33):
         # accurcy
         clf = LogisticRegression(multi_class='auto')
         clf.fit(X_train, y_train)
-        acc = clf.score(X_test, y_test)
         y_pred = clf.predict(X_test)
 
         # try label-sized adjusted f1 score
-        acc  = f1_score(y_pred=y_pred, y_true=y_test,average='weighted')
+        acc  = f1_score(y_pred=y_pred, y_true=y_test,average='micro')
     
-    # psuedo R2
-#     logit = sm.MNLogit(y_train, X_train)
-#     result = logit.fit()
-#     summ_df = pd.read_html(result.summary().tables[0].as_html())[0]
-#     pseudo_r2 = summ_df.iloc[3,3]
-    
-    return acc #, pseudo_r2
+    return acc
 
 def scan_res(input_adata, step_size=0.05):
     # Scan through resolution setting for Louvain clustering and return similarity to previous step. Used to determine resolution setting.
@@ -427,21 +507,13 @@ def classify_type(raw_adata, clustered_adata, type_dict, col_name):
             
     raw_adata.obs[col_name] = type_list
     
-def rank_genes (input_adata, n_genes=100, method='wilcoxon', plot=False, rankby_abs=False):
+def rank_genes (input_adata, n_genes=100, method='wilcoxon'):
     # Rank genes
-    # Input: ad obj + local working dir + s3 dir
-    # Output: print to stdout + upload CSV
+    # Input: ad obj
+    # Output: dataframe of ranked genes
     
-    sc.tl.rank_genes_groups(input_adata, groupby='louvain', method=method, n_genes=n_genes, rankby_abs=rankby_abs)
-    
-    if plot == True:
-        sc.pl.rank_genes_groups(input_adata, n_genes=50, sharey=False, n_panels_per_row=1, fontsize=7)
-    else:
-        pass
-    
-    # print head of CSV (ie top10 genes)
+    sc.tl.rank_genes_groups(input_adata, groupby='louvain', method=method, n_genes=n_genes)
     df_rank = pd.DataFrame(input_adata.uns['rank_genes_groups']['names'])
-    print(df_rank.head(10))
     
     return df_rank
 
@@ -456,7 +528,7 @@ def push_rank (df_rank, feature_dict, wkdir, s3dir, method):
     df_rank.to_csv(rank_path)
     s3_cmd = 'aws s3 cp --quiet {}/{} s3://{}/'.format(wkdir,rank_fn,s3dir)
     subprocess.run(s3_cmd.split()) # push to s3
-    subprocess.run(['rm', rank_path]) # remove local copy    
+    #subprocess.run(['rm', rank_path]) # remove local copy    
     
     # print s3 download link
     dl_link = 'https://s3-us-west-2.amazonaws.com/{}/{}'.format(s3dir,rank_fn)
@@ -506,13 +578,6 @@ def lookup_gene(symbol, u, warnings=False):
     go = res[1]
     
     return annote, go
-
-def reset_functions():
-    # Helper to force import
-    for it in range(2):
-        eval('from scanpy_helpers import *')
-        reload(scanpy_helpers)
-    print('Import complete')
     
 def continuous2class_reg (X, y, test_size=0.33):
     # Logistic regression and returns accuracy
@@ -533,16 +598,7 @@ def continuous2class_reg (X, y, test_size=0.33):
         # accurcy
         clf = LogisticRegression(multi_class='auto')
         clf.fit(X_train, y_train)
-        acc = clf.score(X_test, y_test)
         y_pred = clf.predict(X_test)
-
-        # try label-sized adjusted f1 score
-        acc  = f1_score(y_pred=y_pred, y_true=y_test,average='weighted')
+        acc  = f1_score(y_pred, y_test, average='micro')
     
-    # psuedo R2
-#     logit = sm.MNLogit(y_train, X_train)
-#     result = logit.fit()
-#     summ_df = pd.read_html(result.summary().tables[0].as_html())[0]
-#     pseudo_r2 = summ_df.iloc[3,3]
-    
-    return acc #, pseudo_r2
+    return acc
