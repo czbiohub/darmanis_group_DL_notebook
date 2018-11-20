@@ -238,7 +238,7 @@ def process_adata (adata,
     sc.pp.log1p(tmp)
     
     # regress out total counts
-    sc.pp.regress_out(tmp, ['total_counts'])
+    sc.pp.regress_out(tmp, ['n_counts'])
     
     # mean-center and unit variance scaling
     sc.pp.scale(tmp)
@@ -313,7 +313,7 @@ def umap_adata (adata, meta_labels=None, res=None):
     # Plot metadata
     if meta_labels is None:
         meta_labels = sorted([x for x in adata.obs.columns.values.tolist() if (x is not 'louvain')])
-        sc.pl.umap(adata, color=meta_labels)
+        sc.pl.umap(adata, color=meta_labels, palette='nipy_spectral', cmap='magma')
     else:
         pass
     
