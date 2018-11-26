@@ -3,6 +3,7 @@ import pandas as pd
 from pandas.api.types import CategoricalDtype, is_categorical_dtype
 import numpy as np
 from scipy import sparse, stats
+from scipy.stats import ttest_ind, ranksums
 import warnings
 import scipy.stats as ss
 from sklearn.linear_model import LogisticRegression, LinearRegression
@@ -238,7 +239,8 @@ def process_adata (adata,
     sc.pp.log1p(tmp)
     
     # regress out total counts
-    sc.pp.regress_out(tmp, ['n_counts'])
+#     sc.pp.regress_out(tmp, ['n_counts'])
+#     print('REGRESSION ON')
     
     # mean-center and unit variance scaling
     sc.pp.scale(tmp)
@@ -491,31 +493,45 @@ def scan_res(input_adata, step_size=0.05):
          theme(aspect_ratio=1)+
          geom_line())
     
-def classify_type(raw_adata, clustered_adata, type_dict, col_name):
-    # Manually classify MEL vs KRT
+def classify_type(raw_adata, clustered_adata, input_class, type_dict, output_class):
+    # Manually classify
     # Input: raw ad obj (unfiltered) + ad obj with cluster assignments + dict of labels:cluster assignment + colname
     # Output: update raw ad obj in place
     
     type_list = ['unknown'] * len(raw_adata.obs)
     
     for key,value in type_dict.items():
-        clustered_names = [name for cluster,name in zip(clustered_adata.obs['louvain'], 
+        clustered_names = [name for cluster,name in zip(clustered_adata.obs[input_class], 
                                                              clustered_adata.obs_names) if cluster in value]  
         value_idx = [idx for idx,x in enumerate(raw_adata.obs_names) if x in clustered_names]
         for x in value_idx:
             type_list[x] = key
             
-    raw_adata.obs[col_name] = type_list
+    raw_adata.obs[output_class] = type_list
     
-def rank_genes (input_adata, n_genes=100, method='wilcoxon'):
+def rank_genes (input_adata, methods=['wilcoxon','t-test_overestim_var'],n_genes=20, groupby='louvain'):
     # Rank genes
     # Input: ad obj
     # Output: dataframe of ranked genes
+
+    stack_df = pd.DataFrame()
+    for method in methods:
+        print(method)
+        sc.tl.rank_genes_groups(input_adata, groupby=groupby, method=method, n_genes=n_genes)
+        df_rank = pd.DataFrame(input_adata.uns['rank_genes_groups']['names'])
+        print(df_rank.head(10).to_string(index=False))
+        out_df = pd.DataFrame()
+        for x in tqdm.tqdm(df_rank.columns):
+            genelist=df_rank.loc[:,str(x)].tolist()
+            output=['None' for x in genelist]
+            output=[lookup_gene(x, u) for x in genelist]
+            funct_df=pd.DataFrame({'gene':genelist, 'function':[x[0] for x in output], 'GO':[x[1] for x in output]})
+            funct_df[groupby] = str(x)
+            out_df = out_df.append(funct_df)
+        out_df['method'] = method
+        stack_df = stack_df.append(out_df)
     
-    sc.tl.rank_genes_groups(input_adata, groupby='louvain', method=method, n_genes=n_genes)
-    df_rank = pd.DataFrame(input_adata.uns['rank_genes_groups']['names'])
-    
-    return df_rank
+    return stack_df
 
 def push_rank (df_rank, feature_dict, wkdir, s3dir, method):
     # save CSV of gene list to output to S3
