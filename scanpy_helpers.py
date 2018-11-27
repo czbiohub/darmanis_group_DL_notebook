@@ -533,18 +533,17 @@ def rank_genes (input_adata, methods=['wilcoxon','t-test_overestim_var'],n_genes
     
     return stack_df
 
-def push_rank (df_rank, feature_dict, wkdir, s3dir, method):
+def push_rank (df_rank, title, wkdir, s3dir):
     # save CSV of gene list to output to S3
-    # Input: df of ranks + subsetting feature dictionary + local/s3 paths + method string
+    # Input: df of ranks + local/s3 paths + title
     # Output: push to s3
     
-    id_string = '_'.join(['{}.{}'.format(key,'-'.join(value)) for key,value in feature_dict.items()])
-    rank_fn = 'GeneRank_{}_{}.csv'.format(method, id_string)
+    rank_fn = 'GeneRank_{}.csv'.format(title)
     rank_path = '{}/{}'.format(wkdir, rank_fn)
     df_rank.to_csv(rank_path)
     s3_cmd = 'aws s3 cp --quiet {}/{} s3://{}/'.format(wkdir,rank_fn,s3dir)
     subprocess.run(s3_cmd.split()) # push to s3
-    #subprocess.run(['rm', rank_path]) # remove local copy    
+    subprocess.run(['rm', rank_path]) # remove local copy    
     
     # print s3 download link
     dl_link = 'https://s3-us-west-2.amazonaws.com/{}/{}'.format(s3dir,rank_fn)
@@ -618,3 +617,36 @@ def continuous2class_reg (X, y, test_size=0.33):
         acc  = f1_score(y_pred, y_test, average='micro')
     
     return acc
+
+def occupancy(input_adata, elements, group):
+    # occupancy of group
+    # input: str element name, str group name, adata obj
+    # output: plots showing occupancy
+
+
+    patients = input_adata.obs[elements].tolist()
+    clusters = input_adata.obs[group].tolist()
+
+    # determine counts per cluster by patient class
+    df = pd.DataFrame({'cluster':clusters, elements:patients})
+    df = df.groupby(['cluster',elements]).size()
+    df = df.unstack().replace(np.nan, 0)
+    df = df.reset_index()
+    # print(df.to_string(index=False))
+    df = pd.melt(df, id_vars='cluster')
+
+    plotnine.options.figure_size = (4,4)
+    print(ggplot(df, aes('cluster','value',fill=elements))+
+         theme_bw()+
+         theme(aspect_ratio=1)+
+         geom_bar(stat='identity')+
+         labs(y='# of cells',x=''))
+
+    # normalize by cluster
+    df['value'] = df.groupby('cluster').transform(lambda x: x/x.sum())
+    plotnine.options.figure_size = (4,4)
+    print(ggplot(df, aes('cluster','value',fill=elements))+
+         theme_bw()+
+         theme(aspect_ratio=1)+
+         geom_bar(stat='identity')+
+         labs(y='fraction of elements',x=''))
