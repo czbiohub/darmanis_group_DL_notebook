@@ -279,11 +279,9 @@ def pca_adata (adata, num_pcs=None, hoods=30):
     print('principle_components(num_pcs): {}\ncells/neighborhood(hoods): {}'.format(num_pcs, hoods))
     sc.pp.neighbors(adata,n_pcs=num_pcs, n_neighbors=hoods)
 
-def umap_adata (adata, meta_labels=None, res=None):
+def umap_adata (adata, res=None):
     # Perform clustering and UMAP
     # Input: adata obj + cluster options (below)
-        # num_pcs = number of principle components
-        # hoods = number of cells in neighborhood
         # res = resolution of community detection
     # Output: updated adata + UMAP to std out
     
@@ -311,13 +309,6 @@ def umap_adata (adata, meta_labels=None, res=None):
     # Louvain community clustering
     sc.tl.louvain(adata, resolution = res)
     sc.pl.umap(adata, color=['louvain'], legend_loc='on data')
-    
-    # Plot metadata
-    if meta_labels is None:
-        meta_labels = sorted([x for x in adata.obs.columns.values.tolist() if (x is not 'louvain')])
-        sc.pl.umap(adata, color=meta_labels, palette='nipy_spectral', cmap='magma')
-    else:
-        pass
     
 def subset_adata (adata, feature_dict):
     # Subset adata obj by user dictionary of features and values list. Filter operation below:
