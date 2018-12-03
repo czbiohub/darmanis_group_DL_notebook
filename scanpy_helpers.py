@@ -10,7 +10,7 @@ from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn import preprocessing
-from sklearn.metrics import f1_score, roc_auc_score
+from sklearn.metrics import f1_score, roc_auc_score, jaccard_similarity_score
 from IPython.core.display import HTML
 import numpy.ma as ma # masking package
 import statsmodels.api as sm
@@ -468,21 +468,68 @@ def scan_res(input_adata, step_size=0.05):
         sc.tl.louvain(tmp, resolution = res)
         df['res_{}'.format(res)] = tmp.obs['louvain']
     
-    # compute log reg
-    col_labels = df.columns.tolist()
-    acc_list = []
-    for idx in range(len(col_labels)-1):
-        acc_list.append(class2class_reg(X=df[col_labels[idx]].values, y=df[col_labels[idx+1]].values))
-
-    sim_df = pd.DataFrame({'resolution':res_list[1:],
-                          'similarity':acc_list})
+    # plot cluster occupancies
+    res_vals = df.columns.tolist()
+    base_df = (df.groupby(df.columns.tolist()[0]).size()
+                    .reset_index()
+                    .rename({0:'count',
+                             df.columns.tolist()[0]:'group_2'}, axis='columns'))
+    base_df['group_1'] = base_df['group_2']
+    base_df['step'] = res_vals[0]
+    base_df['ncounts'] = base_df['count']/base_df['count'].sum()
     
-    plotnine.options.figure_size = (2,2)
+    for idx,x in enumerate(range(2,len(df.columns.tolist())+1,1)):
+        columns_oi = df.columns.tolist()[(x-2):x]
+        tmp = (df.groupby(columns_oi)
+                .size()
+                .reset_index()
+                .rename({0:'count', 
+                         columns_oi[0]:'group_1',
+                         columns_oi[1]:'group_2'}, axis='columns'))
+        tmp['step'] = res_vals[idx+1]
+        tmp['ncounts'] = tmp['count']/tmp['count'].sum()
+        base_df = base_df.append(tmp)
 
-    print(ggplot(sim_df, aes(x='resolution',y='similarity'))+
-        theme_bw()+
-         theme(aspect_ratio=1)+
-         geom_line())
+    groupcat1 = CategoricalDtype(['{}'.format(x) for x in range(len(set(base_df['group_1'])))],ordered=True)
+    base_df['group_1_cat'] = base_df['group_1'].astype(str).astype(groupcat1)
+    groupcat2 = CategoricalDtype(['{}'.format(x) for x in range(len(set(base_df['group_2'])))],ordered=True)
+    base_df['group_2_cat'] = base_df['group_2'].astype(str).astype(groupcat2)
+
+    print(ggplot(base_df)
+            +theme_bw()
+            +theme(aspect_ratio=1)
+            +geom_bar(aes('group_2_cat','ncounts',fill='group_1_cat'),stat='identity')
+            +facet_wrap('~step')
+            +labs(x='current label', y='proportion of cells', fill='previous label'))
+    
+    # plot max Jaccard index for each pair of resolutions
+    # convert to int for addition operation
+    for col in df.columns.tolist():
+        df[col] = df[col].astype(int)
+
+    # return max jaccard index value over n+1 label iterator
+    jidx_list = []
+    for idx, col in enumerate(res_vals):
+        if idx > 0:
+            ref = df[res_vals[idx-1]].tolist()
+            curr = df[res_vals[idx]].tolist()
+
+            poss_labs = list(set(ref+curr))
+            jidx_poss = [jaccard_similarity_score(ref, curr)]
+            for idx, x in enumerate(range(len(poss_labs)-1)):
+                reset_val = max(poss_labs)
+                ref = [(x+1) if (x <= reset_val) else 0 for x in ref]
+                jidx_poss.append(jaccard_similarity_score(ref, curr))
+            jidx_list.append(max(jidx_poss))
+    jidx_df = pd.DataFrame({'jidx':jidx_list, 'res':res_vals[1:]})
+    
+    plotnine.options.figure_size = (3,3)
+    print(ggplot(jidx_df)
+             +theme_bw()
+             +theme(aspect_ratio=1,
+                    axis_text_x=element_text(angle=90))
+             +geom_bar(aes('res','jidx'), stat='identity')
+             +labs(y='Jaccard index (rel. to prev. res.)',x='current res.'))
     
 def classify_type(raw_adata, clustered_adata, input_class, type_dict, output_class):
     # Manually classify
