@@ -1,0 +1,85 @@
+---
+title: "dropest testing"
+author: "dan le"
+date: "12/13/2018"
+output: html_document
+---
+
+```{r, include=FALSE}
+library(ggplot2)
+library(dropestr)
+
+ggplot2::theme_set(ggplot2::theme_bw(base_size = 16) + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)))
+
+d <- readRDS('/GB100_1/86_1B/outs/cell.counts.rds')
+```
+
+```{r}
+umi_counts <- sort(Matrix::colSums(d$cm), decreasing=T)
+```
+
+```{r, fig.width=5.5, fig.height=3.5, warning=FALSE}
+PlotIntergenicFractionByChromosomes(d$reads_per_chr_per_cells, d$nonex_cells_chr_counts) # TODO: not run for pseudoaligners
+```
+
+```{r, fig.width=3.5, fig.height=3.5}
+PlotUmisDistribution(d$reads_per_umi_per_cell)
+```
+
+```{r, fig.width=4.5, fig.height=3.5}
+par(mar = c(4, 4, 0.5, 0))
+PlotReadsPerUmiByCells(d$mean_reads_per_umi, umi_counts, cex.lab=1.4)
+```
+
+```{r, fig.width=4.5, fig.height=3.5}
+PlotGenesPerCell(d$cm)
+```
+
+```{r, fig.width=4.5, fig.height=3.5}
+PlotCellsNumberLine(d$aligned_umis_per_cell, breaks=80, title=NULL, estimate.cells.number=T)
+```
+
+```{r, fig.width=4.5, fig.height=3.5}
+PlotCellsNumberHist(d$aligned_umis_per_cell, breaks=60, estimate.cells.number=T, show.legend=F)
+```
+
+```{r, fig.width=5, fig.height=3}
+PlotCellsNumberLogLog(d$aligned_umis_per_cell, T, show.legend=F)
+```
+
+```{r}
+scores <- ScorePipelineCells(d, mitochondrion.genes = if (exists("mit_genes")) mit_genes else NULL,
+                             tags.data = if (exists("tags_data")) tags_data else NULL)
+```
+
+```{r, fig.width=4.5, fig.height=4}
+PlotCellScores(scores, main=paste0('Cell scores (', sum(scores > 0.9), ' cells > 0.9)'), y.threshold=0.9)
+```
+
+```{r, fig.width=4.5, fig.height=4}
+if (exists("mit_genes")) {
+  FractionSmoothScatter(GetGenesetFraction(d$cm, mit_genes), plot.threshold=T, main='Mirochondrial fraction')
+}
+```
+
+```{r, message=FALSE, warning=FALSE, fig.width=4.5, fig.height=4}
+data(saturation_srr1784312)
+saturation <- EstimateSaturation(d$saturation_info$reads, d$saturation_info$cbs, sort(Matrix::colSums(d$cm), decreasing=T))
+PlotSaturationEstimates(list(this=saturation, `mouse ES`=saturation_srr1784312))
+```
+
+```{r, fig.width=4.5, fig.height=4}
+umis_per_gene <- lapply(d$reads_per_umi_per_cell, sapply, length)
+umis_per_gene_vec <- unlist(umis_per_gene)
+
+ggplot() + geom_histogram(aes(x=umis_per_gene_vec[1:100], y= 1 - cumsum(..count../sum(..count..))), bins=50, col=I('black')) + ggplot2::scale_x_log10(expand=c(0, 0.0)) +
+  labs(x='#UMIs per gene', y='Fraction of genes\nwith higher #UMIs') + ggplot2::annotation_logticks(sides='b')
+```
+
+```{r}
+PrintVectorAsTibble(Matrix::rowSums(d$cm), c('Gene', '#Molecules'))
+```
+
+```{r}
+PrintVectorAsTibble(GetUmisDistribution(d$reads_per_umi_per_cell), c('UMI', '#Molecules'), 10)
+```

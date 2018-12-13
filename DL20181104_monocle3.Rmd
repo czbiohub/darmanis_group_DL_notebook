@@ -1,0 +1,100 @@
+---
+title: "monocle"
+author: "dan le"
+date: "12/4/2018"
+output: 
+  html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+library(monocle)
+library(tidyr)
+library(dplyr)
+library(broom)
+library(data.table)
+library(foreach)
+library(ggplot2)
+library(tibble)
+```
+
+```{r}
+exp_mat = fread("~/data/DL20181011_melanocyte_test_data/adata_subset3_exp.csv", header=F) %>% 
+  as.matrix() %>% 
+  t() %>% 
+  unname() 
+cell_mat = fread("~/data/DL20181011_melanocyte_test_data/adata_subset3_cell.csv", header=F)
+colnames(cell_mat) <- c('cell_id','louvain','bsc')
+gene_mat = fread("~/data/DL20181011_melanocyte_test_data/adata_subset3_gene.csv", header=F)
+colnames(gene_mat) <- c('gene_short_name')
+```
+
+```{r}
+pd <- new("AnnotatedDataFrame", data = cell_mat)
+fd <- new("AnnotatedDataFrame", data = gene_mat)
+data <- newCellDataSet(exp_mat, phenoData = pd, featureData = fd)
+data <- estimateSizeFactors(data)
+data <- estimateDispersions(data)
+
+data <- detectGenes(data, min_expr = 0.1)
+expressed_genes <- row.names(subset(fData(data),num_cells_expressed >= 10))
+
+diff_test_res <- differentialGeneTest(data[expressed_genes,],
+              fullModelFormulaStr = "~louvain")
+ordering_genes <- row.names (subset(diff_test_res, qval < 0.01))
+
+data <- setOrderingFilter(data, ordering_genes)
+
+data <- reduceDimension(data, max_components = 2, method = 'DDRTree')
+
+data <- orderCells(data)
+```
+
+```{r}
+sample_state <- pData(data)$State
+lib_info_with_pseudo <- pData(data)
+
+data_df <- t(monocle::reducedDimS(data)) %>%
+    as.data.frame() %>%
+    select(data_dim_1 = V1, data_dim_2 = V2) %>%
+    rownames_to_column("sample_name") %>%
+    mutate(sample_state) %>%
+    left_join(lib_info_with_pseudo %>% rownames_to_column("sample_name"), by = "sample_name")
+# 
+# ggplot(data=data_df, aes(x=data_dim_1, y=data_dim_2)) + 
+#   geom_point(aes(color = louvain), na.rm = TRUE)
+
+plot_cell_trajectory(data, color_by = "louvain")
+plot_cell_trajectory(data, color_by = "State") + facet_wrap(~State, nrow = 1)
+
+data_filtered <- data[expressed_genes,]
+my_genes <- row.names(subset(fData(data_filtered),
+          gene_short_name %in% c("TYR","KIT")))
+cds_subset <- data_filtered[my_genes,]
+plot_genes_in_pseudotime(cds_subset, color_by = "louvain")
+
+```
+
+```{r}
+BEAM_res <- BEAM(data, branch_point = 2, cores = detectCores())
+BEAM_res <- BEAM_res[order(BEAM_res$qval),]
+BEAM_res <- BEAM_res[,c("gene_short_name", "pval", "qval")]
+```
+
+
+```{r}
+plot_genes_branched_heatmap(data[row.names(subset(BEAM_res,
+                                          qval < 1e-4)),],
+                                          branch_point = 2,
+                                          num_clusters = 3,
+                                          cores = detectCores(),
+                                          use_gene_short_name = T,
+                                          show_rownames = T)
+```
+
+
+```{r}
+write.csv(data_df, '~/data/DL20181011_melanocyte_test_data/adata_subset3_psuedotime.csv')
+data_df %>% head()
+```

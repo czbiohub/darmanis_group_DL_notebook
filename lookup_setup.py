@@ -12,6 +12,7 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn import preprocessing
 from sklearn.metrics import f1_score, roc_auc_score, jaccard_similarity_score
 from IPython.core.display import HTML
+from IPython.display import clear_output
 import numpy.ma as ma # masking package
 import statsmodels.api as sm
 import random
@@ -19,8 +20,6 @@ import subprocess
 import pickle
 import tqdm
 from itertools import combinations, permutations
-import s3fs
-import boto3
 
 # sc analysis
 import scanpy.api as sc
@@ -691,3 +690,195 @@ def occupancy(input_adata, elements, group):
          theme(aspect_ratio=1)+
          geom_bar(stat='identity')+
          labs(y='fraction of elements',x=''))
+
+
+def main():
+    # download data from s3
+    wkdir = '/home/ubuntu/data/DL20181011_melanocyte_test_data'
+    s3dir = 'daniel.le-work/MEL_project'
+
+    # read annotation data
+    anno = pd.read_csv('{}/primary_mel_metadata_181011.csv'.format(wkdir), index_col=0)
+    anno = anno.loc[:, ['nGenes', 'nReads', 'well', 'plate', 'patient_id']]
+    anno = anno.rename(columns={'plate':'plate_barcode'})
+    anno['cell_name'] = ['{}_{}'.format(x,y) for x,y in zip(anno['well'], anno['plate_barcode'])]
+
+    # metadata update: 11-07-2018
+    plate_df = pd.read_csv('{}/DL20181107_metadata_update.csv'.format(wkdir))
+    plate_df = plate_df.loc[~plate_df['plate_barcode'].isnull(),:] # remove any row without plate barcode
+    plate_df = plate_df.loc[:, ['plate_barcode', 'patient_id', 'sample_color', 'age', 
+                                'age_bin', 'sex','race', 'general_location', 'anatomical_location']]
+
+    # update metadata with merge
+    merged_anno = pd.merge(anno, plate_df, 'left', ['plate_barcode', 'patient_id'])
+
+
+    # append bsc metadata to anno
+    bsc = pd.read_csv('{}/DL20181106_bsc_metadata.csv'.format(wkdir))
+    merged_anno = pd.merge(merged_anno,bsc,'left',['well','plate_barcode'])
+    merged_anno = merged_anno.set_index('cell_name')
+
+    # read raw data (expression data) to pandas df
+    pre_adata = pd.read_csv('{}/primary_mel_rawdata_181011.csv'.format(wkdir), index_col=0)
+    pre_adata.columns = merged_anno.index.tolist()
+    pre_adata = pre_adata.rename_axis('gene_name')
+
+    # markers
+    markers = ['PMEL','KRT1','KRT5','KRT10','TYR','MITF']
+
+    # ingest data
+    raw_adata = create_adata(pre_adata)
+    raw_adata.var['ribo'] = raw_adata.var_names.str.startswith(('RPL','RPS'))
+    raw_adata.var['ercc'] = np.array([True if 'ERCC' in x else False for x in raw_adata.var_names.tolist()])
+    sc.pp.calculate_qc_metrics(raw_adata, feature_controls=['ribo','ercc'], inplace=True)
+    anno_dict = {'age':'age',
+                 'age_bin':'age_bin',
+                 'plate':'plate_barcode',
+                 'general_location':'general_location',
+                 'anatomical_location':'anatomical_location',
+                 'race':'race',
+                 'sex':'sex',
+                 'color':'sample_color',
+                 'patient':'patient_id',
+                 'bsc': 'bsc_a'}
+    append_anno(raw_adata, merged_anno, anno_dict)
+    append_markers(raw_adata, gene_markers=markers)
+    technical_filters(raw_adata)
+    # raw_adata = remove_ercc(raw_adata) 
+    raw_adata.raw = sc.pp.log1p(raw_adata, copy=True) # freeze raw state
+
+    # all-cells analysis
+    full_adata = process_adata(raw_adata)
+    pca_adata(full_adata, num_pcs=16)
+    umap_adata(full_adata, res=0.3)
+
+    # classify in raw adata
+    input_adata = full_adata
+
+    MEL_int = [0,1,2,4]
+    KRT_int = [x for x in range(len(input_adata.obs['louvain'].cat.categories)) if x not in MEL_int]
+    type_dict = {'KRT':[str(x) for x in KRT_int],
+                 'MEL':[str(x) for x in MEL_int]}
+
+    classify_type(raw_adata, input_adata, 'louvain', type_dict, 'class_1')
+
+    # remove non-Adult bins
+    age_bins = raw_adata.obs['age_bin'].unique()
+    for feat in ['FET_12WK','NEO']:
+        age_bins = age_bins[age_bins != feat]
+
+    feature_dict = {'age_bin':age_bins.tolist(), 'class_1':['MEL']}
+    adata_subset1 = subset_adata_v3(raw_adata,feature_dict)
+    adata_subset1 = process_adata(adata_subset1)
+    pca_adata(adata_subset1, num_pcs=7)
+    umap_adata(adata_subset1, res=0.1)
+
+    # cull cells using Tukey outlier threshold
+    df = pd.DataFrame(adata_subset1.obsm['X_pca'])
+    df.columns = ['PC_{}'.format(x) for x in range(50)]
+
+    omit_names = []
+    for pc in df.columns:
+    #     print(len(set(omit_names)))
+        Q1 = df[pc].quantile(0.25)
+        Q3 = df[pc].quantile(0.75)
+        IQR = Q3 - Q1
+        threshold=7
+
+        bool_idx = [True if ((Q1 - threshold * IQR) <= x <= (Q3 + threshold * IQR)) else False for x in df[pc]]
+        filtered = df[bool_idx]
+    #     print('Filtered cells: ', len(df)-len(filtered))
+
+        omit_names = omit_names + adata_subset1.obs[[not x for x in bool_idx]].index.tolist()
+
+    print('Filtered cells: ', len(set(omit_names)))
+    test = raw_adata[[x for x in raw_adata.obs.index if x not in set(omit_names)]]
+
+    # check where the outliers lie in original projection
+    input_adata = adata_subset1
+    input_adata.obs['outliers'] = ['outlier' if x in set(omit_names) else 'ingroup' for x in input_adata.obs.index]
+
+    # outliers on all-cells projection
+    input_adata = adata_subset1
+
+    type_dict = {'ingroup':['ingroup'],
+                 'outlier':['outlier']}
+
+    classify_type(full_adata, input_adata, 'outliers', type_dict, 'outliers')
+
+    # classify
+    input_adata = adata_subset1
+
+    type_dict = {'ingroup':['ingroup'],
+                 'outlier':['outlier']}
+
+    classify_type(raw_adata, input_adata, 'outliers', type_dict, 'class_2')
+
+    # recluster
+    feature_dict = {'age_bin':age_bins.tolist(), 'class_1':['MEL'], 'class_2':['ingroup']}
+    adata_subset2 = subset_adata_v3(raw_adata, feature_dict)
+    adata_subset2 = process_adata(adata_subset2)
+    pca_adata(adata_subset2, num_pcs=30)
+    umap_adata(adata_subset2, res=.5)
+
+    # classify
+    input_adata = adata_subset2
+
+    type_dict = {'main':['0','1'],
+                 'outer':['2','3','4']}
+
+    classify_type(raw_adata, input_adata, 'louvain', type_dict, 'class_3')
+
+    # recluster
+    feature_dict = {'age_bin':age_bins.tolist(), 
+                    'class_1':['MEL'], 
+                    'class_3':['main']}
+    adata_subset3 = subset_adata_v3(raw_adata, feature_dict)
+    adata_subset3 = process_adata(adata_subset3)
+    pca_adata(adata_subset3, num_pcs=30)
+    umap_adata(adata_subset3, res=.4)
+    clear_output()
+    
+    return full_adata, adata_subset1, adata_subset2, adata_subset3
+
+def multi_gene (gene_list, adatas):
+    warnings.filterwarnings('ignore')
+    desc = ["all-cells", "adt-mel", "adt-mel sans outlier cells", "adt_mel sans all outliers"]
+    desc_key = dict(zip([str(x) for x in adatas], desc))
+
+    for adata in adatas:
+        print(desc_key[str(adata)])
+        sc.pl.umap(adata, color=gene_list + ["louvain"])
+        
+        input_adata = adata
+        groupby='louvain'
+
+        cats, casted_df = prepare_dataframe(input_adata, 
+                                             gene_list, 
+                                             groupby=groupby)
+
+        melt_df = pd.melt(casted_df.reset_index(), id_vars=groupby)
+
+        plotnine.options.figure_size = (8,8)
+        print(ggplot(melt_df, aes(groupby,'value',color=groupby))
+              +theme_bw()
+              +theme(aspect_ratio=1)
+              +coord_flip()
+              +geom_boxplot()
+              +facet_wrap('~variable', nrow=len(gene_list)//3))
+
+        print(ggplot(melt_df, aes('value',fill=groupby))
+              +theme_bw()
+              +theme(aspect_ratio=1)
+              +stat_bin(aes(y='stat(ncount)'))
+              +facet_wrap('~variable', nrow=len(gene_list)//3))
+        
+def single_gene(gene, adatas):
+    warnings.filterwarnings('ignore')
+    desc = ["all-cells", "adt-mel", "adt-mel sans outlier cells", "adt_mel sans all outliers"]
+    desc_key = dict(zip([str(x) for x in adatas], desc))
+    for adata in adatas:
+        print(desc_key[str(adata)])
+        sc.pl.umap(adata, color=[gene, "louvain"])
+        sc.pl.violin(adata, keys=gene, groupby="louvain")
+        
