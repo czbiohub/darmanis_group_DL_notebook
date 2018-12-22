@@ -11,75 +11,198 @@ library(dropestr)
 
 ggplot2::theme_set(ggplot2::theme_bw(base_size = 16) + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5)))
 
-d <- readRDS('/GB100_1/86_1B/outs/cell.counts.rds')
+d <- readRDS('/GB100_1/cell.counts.rds')
 ```
 
 ```{r}
 umi_counts <- sort(Matrix::colSums(d$cm), decreasing=T)
 ```
 
+# chromosome vs num_reads
 ```{r, fig.width=5.5, fig.height=3.5, warning=FALSE}
 PlotIntergenicFractionByChromosomes(d$reads_per_chr_per_cells, d$nonex_cells_chr_counts) # TODO: not run for pseudoaligners
 ```
 
+# UMI prob vs UMIs
 ```{r, fig.width=3.5, fig.height=3.5}
 PlotUmisDistribution(d$reads_per_umi_per_cell)
 ```
 
+# num_umi_per_cell vs mean_reads_per_cell
 ```{r, fig.width=4.5, fig.height=3.5}
 par(mar = c(4, 4, 0.5, 0))
 PlotReadsPerUmiByCells(d$mean_reads_per_umi, umi_counts, cex.lab=1.4)
 ```
 
+# genes_in_cell vs num_cells
 ```{r, fig.width=4.5, fig.height=3.5}
 PlotGenesPerCell(d$cm)
 ```
 
+# cell rank vs (num_umi * num_cells)
 ```{r, fig.width=4.5, fig.height=3.5}
 PlotCellsNumberLine(d$aligned_umis_per_cell, breaks=80, title=NULL, estimate.cells.number=T)
 ```
 
+# num_umi_in_cell vs (num_umi * num_cells)
 ```{r, fig.width=4.5, fig.height=3.5}
 PlotCellsNumberHist(d$aligned_umis_per_cell, breaks=60, estimate.cells.number=T, show.legend=F)
 ```
 
+# cell rank vs num_umi
 ```{r, fig.width=5, fig.height=3}
 PlotCellsNumberLogLog(d$aligned_umis_per_cell, T, show.legend=F)
 ```
 
-```{r}
+# cell rank vs quality score
+```{r, fig.width=4.5, fig.height=4}
 scores <- ScorePipelineCells(d, mitochondrion.genes = if (exists("mit_genes")) mit_genes else NULL,
                              tags.data = if (exists("tags_data")) tags_data else NULL)
-```
 
-```{r, fig.width=4.5, fig.height=4}
 PlotCellScores(scores, main=paste0('Cell scores (', sum(scores > 0.9), ' cells > 0.9)'), y.threshold=0.9)
 ```
 
-```{r, fig.width=4.5, fig.height=4}
+# seq_depth vs num_unique_molecules
+```{r, message=FALSE, warning=FALSE, fig.width=4.5, fig.height=4}
 if (exists("mit_genes")) {
   FractionSmoothScatter(GetGenesetFraction(d$cm, mit_genes), plot.threshold=T, main='Mirochondrial fraction')
 }
-```
 
-```{r, message=FALSE, warning=FALSE, fig.width=4.5, fig.height=4}
 data(saturation_srr1784312)
 saturation <- EstimateSaturation(d$saturation_info$reads, d$saturation_info$cbs, sort(Matrix::colSums(d$cm), decreasing=T))
 PlotSaturationEstimates(list(this=saturation, `mouse ES`=saturation_srr1784312))
 ```
 
-```{r, fig.width=4.5, fig.height=4}
-umis_per_gene <- lapply(d$reads_per_umi_per_cell, sapply, length)
-umis_per_gene_vec <- unlist(umis_per_gene)
 
-ggplot() + geom_histogram(aes(x=umis_per_gene_vec[1:100], y= 1 - cumsum(..count../sum(..count..))), bins=50, col=I('black')) + ggplot2::scale_x_log10(expand=c(0, 0.0)) +
-  labs(x='#UMIs per gene', y='Fraction of genes\nwith higher #UMIs') + ggplot2::annotation_logticks(sides='b')
+```{r, eval=F}
+PrepareLqCellsData <- function(count.matrix, aligned.reads.per.cell, total.umis.per.cell=NULL, total.reads.per.cell=NULL,
+                               intergenic.reads.per.cell=NULL, mitochondrion.fraction=NULL, scale=TRUE) {
+  analyzed.cbs <- colnames(count.matrix)
+
+  contains.all.cbs <- sapply(list(aligned.reads.per.cell, total.umis.per.cell, total.reads.per.cell, intergenic.reads.per.cell),
+         function(x) is.null(x) || length(setdiff(analyzed.cbs, names(x))) == 0)
+
+  if (!all(contains.all.cbs))
+    stop("Each of the provided parameters must contain all cbs, presented in count.matrix")
+
+  if (is.null(total.umis.per.cell)) {
+    total.umis.per.cell <- Matrix::colSums(count.matrix)
+  }
+  total.umis.per.cell <- sort(total.umis.per.cell[analyzed.cbs], decreasing=T)
+  analyzed.cbs <- names(total.umis.per.cell)
+
+  aligned.reads.per.cell <- aligned.reads.per.cell[analyzed.cbs]
+  reads.per.umi <- aligned.reads.per.cell / total.umis.per.cell
+
+  genes.per.cell <- Matrix::colSums(count.matrix[,analyzed.cbs] > 0)
+  umis.per.gene <- total.umis.per.cell / genes.per.cell
+
+  low.exp.genes.sum <- Matrix::colSums(count.matrix[,analyzed.cbs] == 1)
+  low.exp.genes.frac <- low.exp.genes.sum / Matrix::colSums(count.matrix > 0)[analyzed.cbs]
+
+  tech.features <- data.frame(ReadsPerUmi=reads.per.umi, UmiPerGene=umis.per.gene,
+                              LowExpressedGenesFrac=low.exp.genes.frac)
+
+  if (!is.null(intergenic.reads.per.cell)) {
+    intergenic.reads.per.cell <- intergenic.reads.per.cell[analyzed.cbs]
+    tech.features$IntergenicFrac <- intergenic.reads.per.cell / (intergenic.reads.per.cell + aligned.reads.per.cell)
+  }
+
+  if (!is.null(total.reads.per.cell)) {
+    total.reads.per.cell <- total.reads.per.cell[analyzed.cbs]
+    tech.features$NotAlignedUmisFrac <- pmax(total.reads.per.cell - aligned.reads.per.cell, 0) / total.reads.per.cell / reads.per.umi
+  }
+
+  if (!is.null(mitochondrion.fraction)) {
+    tech.features$MitochondrionFraction <- mitochondrion.fraction[analyzed.cbs]
+  }
+
+  tech.features <- tech.features[,apply(tech.features, 2, function(col) any(abs(col) > 1e-10))]
+  if (scale) {
+    tech.features <- Scale(tech.features)
+  }
+
+  return(tech.features)
+}
+
+
+PrepareLqCellsDataPipeline <- function(data, total.reads.per.cell=NULL, mitochondrion.genes=NULL,
+                                       mit.chromosome.name=NULL, scale=TRUE) {
+  intergenic.reads.per.cell <- rep(0, length(data$aligned_umis_per_cell))
+  names(intergenic.reads.per.cell) <- names(data$aligned_umis_per_cell)
+
+  intergenic.cbs <- intersect(names(data$aligned_umis_per_cell), rownames(data$reads_per_chr_per_cells$Intergenic))
+  intergenic.reads.per.cell[intergenic.cbs] <- rowSums(data$reads_per_chr_per_cells$Intergenic[intergenic.cbs,])
+
+  if (!is.null(total.reads.per.cell)) {
+    merge.targets <- unlist(data$merge_targets[data$merge_targets != names(data$merge_targets)])
+    total.reads.per.cell[merge.targets] <- total.reads.per.cell[merge.targets] + total.reads.per.cell[names(merge.targets)]
+  }
+
+  mitochondrion.fraction <- NULL
+  if (!is.null(mitochondrion.genes)) {
+    mitochondrion.fraction <- GetGenesetFraction(data$cm_raw, mitochondrion.genes)
+  } else if (!is.null(mit.chromosome.name)) {
+    mitochondrion.fraction <- GetChromosomeFraction(data$reads_per_chr_per_cells$Exon, mit.chromosome.name)
+  }
+
+  if (!is.null(mitochondrion.fraction) && all(mitochondrion.fraction < 1e-10)) {
+    warning("All cells have zero mitochondrial fraction. The fearure won't be used for analysis.\n")
+    mitochondrion.fraction <- NULL
+  }
+
+  return(PrepareLqCellsData(data$cm_raw, data$aligned_reads_per_cell, data$aligned_umis_per_cell, total.reads.per.cell,
+                            intergenic.reads.per.cell, mitochondrion.fraction, scale=scale))
+}
+
+EstimateCellsQuality <- function(umi.counts, cell.number=NULL) {
+  umi.counts <- sort(umi.counts, decreasing=T)
+  if (is.null(cell.number)) {
+    cell.number <- EstimateCellsNumber(umi.counts)
+  }
+  cells.quality <- rep('Unknown', length(umi.counts))
+  cells.quality[1:cell.number$min] <- 'High'
+  cells.quality[cell.number$max:length(umi.counts)] <- 'Low'
+  names(cells.quality) <- names(umi.counts)
+
+  return(as.factor(cells.quality))
+}
+
+Scale <- function(x, center_func=min, norm_func=max) {
+  return(data.frame(Normalize(Center(x, center_func), norm_func)))
+}
+
+Normalize <- function(x, func=sd) {
+  normalizer <- apply(x, 2, func)
+  if (any(abs(normalizer) < 1e-10)) {
+    warning("Normalizer is too small")
+  }
+  return(t(t(x) / normalizer))
+}
+
+Center <- function(x, func=mean) {
+  return(data.frame(t(t(x) - apply(x, 2, func))))
+}
 ```
 
-```{r}
-PrintVectorAsTibble(Matrix::rowSums(d$cm), c('Gene', '#Molecules'))
-```
+```{r, eval=F}
+mitochondrion.genes = if (exists("mit_genes")) mit_genes else NULL
+tags.data = if (exists("tags_data")) tags_data else NULL
+mit.chromosome.name = NULL
+filter.mitochondrial=NULL
+cell.number=NULL
 
-```{r}
-PrintVectorAsTibble(GetUmisDistribution(d$reads_per_umi_per_cell), c('UMI', '#Molecules'), 10)
+if (is.null(filter.mitochondrial)) {
+  filter.mitochondrial <- !is.null(mitochondrion.genes) | !is.null(mit.chromosome.name)
+}
+
+if (filter.mitochondrial && is.null(mitochondrion.genes) && is.null(mit.chromosome.name))
+  stop("Either list of mitochondrial genes of a name of mitochondrial chromosome must be provided to filter cells with high mitochondrial fraction")
+
+umi.counts.raw <- sort(Matrix::colSums(d$cm_raw), decreasing=T)
+cells.quality <- EstimateCellsQuality(umi.counts.raw, cell.number=cell.number)
+
+bc.df <- PrepareLqCellsDataPipeline(d, mitochondrion.genes = mitochondrion.genes,
+                                    mit.chromosome.name=mit.chromosome.name,
+                                total.reads.per.cell=tags.data$reads_per_cb)[names(cells.quality), ]
 ```
