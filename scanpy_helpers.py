@@ -615,6 +615,13 @@ def lookup_gene(symbol, u, warnings=False):
     # Input: gene symbol + iniprot interface obj
     # Output: annotation and GO term as tuple
     
+    ### refactor potential
+    # import mygene
+    # mg = mygene.MyGeneInfo()
+    # xli = ['gene1','gene2',...]
+    # out = mg.querymany(xli, scopes='symbol', fields='summary', species='human')
+    ### 
+    
     try:
         res = u.search(query="{}+AND+HUMAN".format(symbol),
                        columns= 'comment(FUNCTION), go(molecular function)', 
