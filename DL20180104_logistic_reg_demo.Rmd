@@ -2,7 +2,9 @@
 title: "logit_demo"
 author: "dan le"
 date: "1/4/2019"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include = F}
