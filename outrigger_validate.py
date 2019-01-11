@@ -15,14 +15,11 @@ def pull_job(jobs_path):
                               stdout=subprocess.PIPE)
     ec2_id =  proc.stdout.split('\n')[0]
     
-    # pull jobs queue
-    jobs_df = pd.read_csv(f'{jobs_path}/queue/jobs_queue.csv')
-    if ec2_id in jobs_df.ec2_id.values:
-        s3path = jobs_df[jobs_df.ec2_id == ec2_id].path.tolist()[0]
-    elif len(jobs_df) > 0:
-        print('No matching jobs')
-    else:
-        print('No jobs in queue')
+    # pull job path
+    jobs_df = pd.read_csv(f'{jobs_path}/queue/{ec2_id}.job)
+    s3path = jobs_df.path.values[0]
+    print(s3path)
+    
     return s3path
 
 def module1(s3path):
