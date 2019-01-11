@@ -120,4 +120,4 @@ def main(jobs_path):
     except:
         pass
     
-main(sys.argv[1])
+main('s3://daniel.le-work/MEL_project/outrigger/DL20190111_testing')
