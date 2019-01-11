@@ -65,17 +65,17 @@ def logging(wkdir, name, exit_code):
 def main(jobs_path):
     print(jobs_path)
     
+    # variables
+    start_time = time.time()
+    wkdir = f'/home/ubuntu/wkdir'
+    gtf_file = '/home/ubuntu/data/HG38-PLUS/genes/genes.gtf'
+    fa_file = '/home/ubuntu/data/HG38-PLUS/fasta/genome.fa'
+    chrlen_file = '/home/ubuntu/data/HG38-PLUS/star/chrNameLength.txt'
+    dest = 's3://daniel.le-work/MEL_project/DL20190111_outrigger'
+    
     # pull jobs
     try:
         s3path = pull_job(jobs_path)
-        
-        # variables
-        start_time = time.time()
-        wkdir = f'/home/ubuntu/wkdir'
-        gtf_file = '/home/ubuntu/data/HG38-PLUS/genes/genes.gtf'
-        fa_file = '/home/ubuntu/data/HG38-PLUS/fasta/genome.fa'
-        chrlen_file = '/home/ubuntu/data/HG38-PLUS/star/chrNameLength.txt'
-        dest = 's3://daniel.le-work/MEL_project/DL20190111_outrigger'
 
         # parse path for prefix to name outputs
         try:
