@@ -16,7 +16,7 @@ def pull_job(jobs_path):
     ec2_id =  proc.stdout.split('\n')[0]
     
     # pull job path
-    jobs_df = pd.read_csv(f'{jobs_path}/queue/{ec2_id}.job)
+    jobs_df = pd.read_csv(f'{jobs_path}/queue/{ec2_id}.job')
     s3path = jobs_df.path.values[0]
     print(s3path)
     
