@@ -85,20 +85,20 @@ def main(jobs_path):
             exit_code = 1
         logging(wkdir, prefix, 'parse_path', exit_code)
 
-        # pull input from s3
-        exit_code = module2(s3path, wkdir)
-        logging(wkdir, prefix, 's3_download', exit_code)
+#         # pull input from s3
+#         exit_code = module2(s3path, wkdir)
+#         logging(wkdir, prefix, 's3_download', exit_code)
 
-        # run outrigger index and valide modules
-        exit_code = module3A(wkdir, file_prefix, gtf_file)
-        logging(wkdir, prefix, 'run_outrigger', exit_code)
+#         # run outrigger index and valide modules
+#         exit_code = module3A(wkdir, file_prefix, gtf_file)
+#         logging(wkdir, prefix, 'run_outrigger', exit_code)
 
-        exit_code = module3B(wkdir, chrlen_file, fa_file)
-        logging(wkdir, prefix, 'run_validate', exit_code)
+#         exit_code = module3B(wkdir, chrlen_file, fa_file)
+#         logging(wkdir, prefix, 'run_validate', exit_code)
 
         # compile results
         for subtype in ['se','mxe']:
-            exit_code = module4(wkdir, subtype, jobs_path)
+            exit_code = module4(wkdir, subtype, jobs_path, prefix)
             logging(wkdir, prefix, f'{subtype}_upload', exit_code)
         
         # log iteration
