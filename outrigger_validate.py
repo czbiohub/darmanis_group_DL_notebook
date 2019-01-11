@@ -14,7 +14,7 @@ def module1(s3path):
     return file_prefix, prefix, plate
 
 def module2(s3path, wkdir):
-    os.chdir('~/')
+    os.chdir('/home/ubuntu/')
     run(['aws', 's3', 'cp', s3path, f'{wkdir}/'])
     
 def module3(wkdir, file_prefix, gtf_file, fa_file):
@@ -28,7 +28,7 @@ def module3(wkdir, file_prefix, gtf_file, fa_file):
          '--fasta', fa_file])
     
 def module4(wkdir, subtype, dest):
-    os.chdir('~/')
+    os.chdir('/home/ubuntu/')
     run(['aws', 's3', 'cp',
          f'{wkdir}/outrigger_output/index/{subtype}/validated/events.csv', 
          f'{dest}/'])
@@ -40,9 +40,9 @@ def logging(wkdir, name, exit_code):
 def main(s3path):
     # variables
     start_time = time.time()
-    wkdir = f'~/wkdir'
-    gtf_file = '~/data/HG38-PLUS/genes/genes.gtf'
-    fa_file = '~/data/HG38-PLUS/fasta/genome.fa'
+    wkdir = f'/home/ubuntu/wkdir'
+    gtf_file = '/home/ubuntu/data/HG38-PLUS/genes/genes.gtf'
+    fa_file = '/home/ubuntu/data/HG38-PLUS/fasta/genome.fa'
     dest = 's3://daniel.le-work/MEL_project/DL20190111_outrigger'
     
     # parse path for prefix to name outputs
