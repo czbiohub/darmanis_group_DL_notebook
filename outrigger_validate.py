@@ -86,36 +86,36 @@ def main(jobs_path):
             exit_code = 0
         except:
             exit_code = 1
-        logging(wkdir, 'parse_path', exit_code)
+        logging(wkdir, prefix, 'parse_path', exit_code)
 
         # pull input from s3
         exit_code = module2(s3path, wkdir)
-        logging(wkdir, 's3_download', exit_code)
+        logging(wkdir, prefix, 's3_download', exit_code)
 
         # run outrigger index and valide modules
         exit_code = module3A(wkdir, file_prefix, gtf_file)
-        logging(wkdir, 'run_outrigger', exit_code)
+        logging(wkdir, prefix, 'run_outrigger', exit_code)
 
         exit_code = module3B(wkdir, chrlen_file, fa_file)
-        logging(wkdir, 'run_validate', exit_code)
+        logging(wkdir, prefix, 'run_validate', exit_code)
 
         # compile results
         for subtype in ['se','mxe']:
             exit_code = module4(wkdir, subtype, jobs_path)
-            logging(wkdir, f'{subtype}_upload', exit_code)
+            logging(wkdir, prefix, f'{subtype}_upload', exit_code)
         
         # log iteration
-        logging(wkdir, 'iteration_complete', 0)
+        logging(wkdir, prefix, 'iteration_complete', 0)
         
     except:
-        logging(wkdir, 'iteration_complete', 1)
+        logging(wkdir, prefix, 'iteration_complete', 1)
         
     # record execution time
     try:
         etime = time.time() - start_time
     except:
         etime = -1
-    logging(wkdir, '__exec_time', etime)
+    logging(wkdir, prefix, '__exec_time', etime)
     
     # push log
     try:
