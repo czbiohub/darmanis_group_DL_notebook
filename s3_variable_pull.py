@@ -9,7 +9,7 @@ def main():
     proc = subprocess.run(['ec2metadata', '--instance-id'], 
                           encoding='utf-8', 
                           stdout=subprocess.PIPE)
-    ec2_id =  proc.stdout
+    ec2_id =  proc.stdout.split('\n')
     print(ec2_id)
     
 main()
