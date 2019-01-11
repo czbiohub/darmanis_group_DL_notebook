@@ -61,8 +61,9 @@ def logging(wkdir, prefix, name, exit_code):
         
 def push_log(wkdir, prefix):
     os.chdir('/home/ubuntu/')
-    process = run(['aws', 's3', 'cp', f'{wkdir}/{prefix}.log', f's3://{jobs_path}/logs/'])
-
+    process = run(['aws', 's3', 'cp', f'{wkdir}/{prefix}.log', f'{jobs_path}/logs/'])
+    print(process)
+    
 def main(jobs_path):
     print(jobs_path)
     
