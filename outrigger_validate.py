@@ -41,6 +41,8 @@ def logging(wkdir, name, exit_code):
         f.write(f'{name}, {exit_code}\n')
 
 def main(s3path):
+    print(s3path)
+    
     # variables
     start_time = time.time()
     wkdir = f'/home/ubuntu/wkdir'
