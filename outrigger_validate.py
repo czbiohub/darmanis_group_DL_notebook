@@ -50,7 +50,7 @@ def main(s3path):
     
     # parse path for prefix to name outputs
     try:
-        file_prefix, prefix, plate = module1
+        file_prefix, prefix, plate = module1(s3path)
         exit_code = 0
     except:
         exit_code = 1
