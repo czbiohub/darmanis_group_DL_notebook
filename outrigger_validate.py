@@ -116,7 +116,7 @@ def main(jobs_path):
     
     # push log
     try:
-        push_log(wkdir, prefix)
+        push_log(wkdir, prefix, jobs_path)
     except:
         pass
     
