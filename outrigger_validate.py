@@ -18,16 +18,19 @@ def module2(s3path, wkdir):
     process = run(['aws', 's3', 'cp', s3path, f'{wkdir}/'])
     return process.returncode
     
-def module3(wkdir, file_prefix, gtf_file, fa_file):
+def module3A(wkdir, file_prefix, gtf_file):
     os.chdir(wkdir)
-    process1 = run(['outrigger', 'index', 
+    process = run(['outrigger', 'index', 
                  '--sj-out-tab', f'{file_prefix}.homo.SJ.out.tab',
                  '--gtf', gtf_file])
+    return process.returncode
+
+def module3B(wkdir, fa_file):
     os.chdir(wkdir)
-    process2 = run(['outrigger', 'validate', 
+    process = run(['outrigger', 'validate', 
                  '--genome', 'hg38',
                  '--fasta', fa_file])
-    return process1.returncode, process2.returncode
+    return process.returncode
     
 def module4(wkdir, subtype, dest):
     os.chdir('/home/ubuntu/')
@@ -62,20 +65,23 @@ def main(s3path):
     exit_code = module2(s3path, wkdir)
     logging(wkdir, 's3_download', exit_code)
     
-#     # run outrigger and validate modules
-#     exit_code = module3(wkdir, file_prefix, gtf_file, fa_file)
-#     logging(wkdir, 'run_analysis', exit_code)
+    # run outrigger index and valide modules
+    exit_code = module3A(wkdir, file_prefix, gtf_file)
+    logging(wkdir, 'run_outrigger', exit_code)
+    
+    exit_code = module3B(wkdir, fa_file)
+    logging(wkdir, 'run_validate', exit_code)
 
-#     # compile results
-#     for subtype in ['se','mxe']:
-#         exit_code = module4(wkdir, subtype, dest)
-#         logging(wkdir, f'{subtype}_upload', exit_code)
+    # compile results
+    for subtype in ['se','mxe']:
+        exit_code = module4(wkdir, subtype, dest)
+        logging(wkdir, f'{subtype}_upload', exit_code)
                      
-#     # record execution time
-#     try:
-#         etime = time.time() - start_time
-#     except:
-#         etime = -1
-#     logging(wkdir, '__exec_time', etime)
+    # record execution time
+    try:
+        etime = time.time() - start_time
+    except:
+        etime = -1
+    logging(wkdir, '__exec_time', etime)
     
 main(sys.argv[1])
