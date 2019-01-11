@@ -78,4 +78,4 @@ def main(s3path):
 #         etime = -1
 #     logging(wkdir, '__exec_time', etime)
     
-main(sys.argv[0])
+main(sys.argv[1])
