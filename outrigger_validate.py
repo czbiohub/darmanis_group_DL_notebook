@@ -16,7 +16,7 @@ def pull_job(jobs_path):
     ec2_id =  proc.stdout.split('\n')[0]
     
     # pull jobs queue
-    jobs_df = pd.read_csv(jobs_path)
+    jobs_df = pd.read_csv(f'{jobs_path}/queue/jobs_queue.csv')
     if ec2_id in jobs_df.ec2_id.values:
         s3path = jobs_df[jobs_df.ec2_id == ec2_id].path.tolist()[0]
     elif len(jobs_df) > 0:
@@ -51,16 +51,20 @@ def module3B(wkdir, chrlen_file, fa_file):
                  '--fasta', fa_file])
     return process.returncode
     
-def module4(wkdir, subtype, dest):
+def module4(wkdir, subtype, jobs_path, prefix):
     os.chdir('/home/ubuntu/')
     process = run(['aws', 's3', 'cp',
                  f'{wkdir}/outrigger_output/index/{subtype}/validated/events.csv', 
-                 f'{dest}/'])
+                 f'{jobs_path}/results/{prefix}_{subtype}.csv'])
     return process.returncode
 
-def logging(wkdir, name, exit_code):
-    with open(f'{wkdir}/log.txt', 'a') as f:
+def logging(wkdir, prefix, name, exit_code):
+    with open(f'{wkdir}/{prefix}.log', 'a') as f:
         f.write(f'{name}, {exit_code}\n')
+        
+def push_log(wkdir, prefix):
+    os.chdir('/home/ubuntu/')
+    process = run(['aws', 's3', 'cp', f'{wkdir}/{prefix}.log', f'{jobs_path}/logs/'])
 
 def main(jobs_path):
     print(jobs_path)
@@ -71,7 +75,6 @@ def main(jobs_path):
     gtf_file = '/home/ubuntu/data/HG38-PLUS/genes/genes.gtf'
     fa_file = '/home/ubuntu/data/HG38-PLUS/fasta/genome.fa'
     chrlen_file = '/home/ubuntu/data/HG38-PLUS/star/chrNameLength.txt'
-    dest = 's3://daniel.le-work/MEL_project/DL20190111_outrigger'
     
     # pull jobs
     try:
@@ -98,17 +101,26 @@ def main(jobs_path):
 
         # compile results
         for subtype in ['se','mxe']:
-            exit_code = module4(wkdir, subtype, dest)
+            exit_code = module4(wkdir, subtype, jobs_path)
             logging(wkdir, f'{subtype}_upload', exit_code)
-
-        # record execution time
-        try:
-            etime = time.time() - start_time
-        except:
-            etime = -1
-        logging(wkdir, '__exec_time', etime)
+        
+        # log iteration
+        logging(wkdir, 'iteration_complete', 0)
         
     except:
-        print('abort process')
+        logging(wkdir, 'iteration_complete', 1)
+        
+    # record execution time
+    try:
+        etime = time.time() - start_time
+    except:
+        etime = -1
+    logging(wkdir, '__exec_time', etime)
+    
+    # push log
+    try:
+        push_log(wkdir, prefix)
+    except:
+        pass
     
 main(sys.argv[1])
