@@ -56,24 +56,24 @@ def main(s3path):
         exit_code = 1
     logging(wkdir, 'parse_path', exit_code)
     
-    # pull input from s3
-    exit_code = module2(s3path, wkdir)
-    logging(wkdir, 's3_download', exit_code)
+#     # pull input from s3
+#     exit_code = module2(s3path, wkdir)
+#     logging(wkdir, 's3_download', exit_code)
     
-    # run outrigger and validate modules
-    exit_code = module3(wkdir, file_prefix, gtf_file, fa_file)
-    logging(wkdir, 'run_analysis', exit_code)
+#     # run outrigger and validate modules
+#     exit_code = module3(wkdir, file_prefix, gtf_file, fa_file)
+#     logging(wkdir, 'run_analysis', exit_code)
 
-    # compile results
-    for subtype in ['se','mxe']:
-        exit_code = module4(wkdir, subtype, dest)
-        logging(wkdir, f'{subtype}_upload', exit_code)
+#     # compile results
+#     for subtype in ['se','mxe']:
+#         exit_code = module4(wkdir, subtype, dest)
+#         logging(wkdir, f'{subtype}_upload', exit_code)
                      
-    # record execution time
-    try:
-        etime = time.time() - start_time
-    except:
-        etime = -1
-    logging(wkdir, '__exec_time', etime)
+#     # record execution time
+#     try:
+#         etime = time.time() - start_time
+#     except:
+#         etime = -1
+#     logging(wkdir, '__exec_time', etime)
     
 main(sys.argv[0])
