@@ -15,26 +15,26 @@ def module1(s3path):
 
 def module2(s3path, wkdir):
     os.chdir('/home/ubuntu/')
-    return_code = run(['aws', 's3', 'cp', s3path, f'{wkdir}/'])
-    return return_code
+    process = run(['aws', 's3', 'cp', s3path, f'{wkdir}/'])
+    return process.returncode
     
 def module3(wkdir, file_prefix, gtf_file, fa_file):
     os.chdir(wkdir)
-    return_code1 = run(['outrigger', 'index', 
+    process1 = run(['outrigger', 'index', 
                  '--sj-out-tab', f'{file_prefix}.homo.SJ.out.tab',
                  '--gtf', gtf_file])
     os.chdir(wkdir)
-    return_code2 = run(['outrigger', 'validate', 
+    process2 = run(['outrigger', 'validate', 
                  '--genome', 'hg38',
                  '--fasta', fa_file])
-    return return_code1, return_code2
+    return process1.returncode, process2.returncode
     
 def module4(wkdir, subtype, dest):
     os.chdir('/home/ubuntu/')
-    return_code = run(['aws', 's3', 'cp',
+    process = run(['aws', 's3', 'cp',
                  f'{wkdir}/outrigger_output/index/{subtype}/validated/events.csv', 
                  f'{dest}/'])
-    return return_code
+    return process.returncode
 
 def logging(wkdir, name, exit_code):
     with open(f'{wkdir}/log.txt', 'a') as f:
