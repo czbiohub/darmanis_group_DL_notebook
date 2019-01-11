@@ -56,9 +56,9 @@ def main(s3path):
         exit_code = 1
     logging(wkdir, 'parse_path', exit_code)
     
-#     # pull input from s3
-#     exit_code = module2(s3path, wkdir)
-#     logging(wkdir, 's3_download', exit_code)
+    # pull input from s3
+    exit_code = module2(s3path, wkdir)
+    logging(wkdir, 's3_download', exit_code)
     
 #     # run outrigger and validate modules
 #     exit_code = module3(wkdir, file_prefix, gtf_file, fa_file)
