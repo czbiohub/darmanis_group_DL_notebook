@@ -15,23 +15,26 @@ def module1(s3path):
 
 def module2(s3path, wkdir):
     os.chdir('/home/ubuntu/')
-    run(['aws', 's3', 'cp', s3path, f'{wkdir}/'])
+    return_code = run(['aws', 's3', 'cp', s3path, f'{wkdir}/'])
+    return return_code
     
 def module3(wkdir, file_prefix, gtf_file, fa_file):
     os.chdir(wkdir)
-    run(['outrigger', 'index', 
-         '--sj-out-tab', f'{file_prefix}.homo.SJ.out.tab',
-         '--gtf', gtf_file])
+    return_code1 = run(['outrigger', 'index', 
+                 '--sj-out-tab', f'{file_prefix}.homo.SJ.out.tab',
+                 '--gtf', gtf_file])
     os.chdir(wkdir)
-    run(['outrigger', 'validate', 
-         '--genome', 'hg38',
-         '--fasta', fa_file])
+    return_code2 = run(['outrigger', 'validate', 
+                 '--genome', 'hg38',
+                 '--fasta', fa_file])
+    return return_code1, return_code2
     
 def module4(wkdir, subtype, dest):
     os.chdir('/home/ubuntu/')
-    run(['aws', 's3', 'cp',
-         f'{wkdir}/outrigger_output/index/{subtype}/validated/events.csv', 
-         f'{dest}/'])
+    return_code = run(['aws', 's3', 'cp',
+                 f'{wkdir}/outrigger_output/index/{subtype}/validated/events.csv', 
+                 f'{dest}/'])
+    return return_code
 
 def logging(wkdir, name, exit_code):
     with open(f'{wkdir}/log.txt', 'a') as f:
@@ -54,28 +57,16 @@ def main(s3path):
     logging(wkdir, 'parse_path', exit_code)
     
     # pull input from s3
-    try:
-        module2(s3path, wkdir)
-        exit_code = 0
-    except:
-        exit_code = 1
+    exit_code = module2(s3path, wkdir)
     logging(wkdir, 's3_download', exit_code)
     
     # run outrigger and validate modules
-    try:
-        module3(wkdir, file_prefix, gtf_file, fa_file)
-        exit_code = 0
-    except:
-        exit_code = 1
+    exit_code = module3(wkdir, file_prefix, gtf_file, fa_file)
     logging(wkdir, 'run_analysis', exit_code)
 
     # compile results
     for subtype in ['se','mxe']:
-        try:
-            module4(wkdir, subtype, dest)
-            exit_code = 0
-        except:
-            exit_code = 1
+        exit_code = module4(wkdir, subtype, dest)
         logging(wkdir, f'{subtype}_upload', exit_code)
                      
     # record execution time
