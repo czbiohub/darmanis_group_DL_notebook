@@ -65,6 +65,7 @@ def push_log(wkdir, prefix, jobs_path):
     
 def main(jobs_path):
     print(jobs_path)
+    time.sleep(30)
     
     # variables
     start_time = time.time()
