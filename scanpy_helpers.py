@@ -3,7 +3,7 @@ import pandas as pd
 from pandas.api.types import CategoricalDtype, is_categorical_dtype
 import numpy as np
 from scipy import sparse, stats
-from scipy.stats import ttest_ind, ranksums, variation
+from scipy.stats import ttest_ind, ranksums, variation, pearsonr
 import warnings
 import scipy.stats as ss
 from sklearn.linear_model import LogisticRegression, LinearRegression
@@ -15,7 +15,7 @@ from IPython.core.display import HTML
 import numpy.ma as ma # masking package
 import statsmodels.api as sm
 import random
-import subprocess
+import subprocess, os, sys, mygene, string, glob
 import pickle
 import tqdm
 from itertools import combinations, permutations
@@ -698,3 +698,261 @@ def occupancy(input_adata, elements, group):
          theme(aspect_ratio=1)+
          geom_bar(stat='identity')+
          labs(y='fraction of elements',x=''))
+    
+def rank_push (input_adata, groupby, prefix, wkdir, s3dir, methods=['wilcoxon','t-test_overestim_var']):
+    
+    if len(methods) != 2:
+        print('requires exactly 2 methods')
+    else:
+    
+        rank_df = rank_genes(input_adata, 
+                             methods=methods,
+                             groupby=groupby)
+
+        # inner join 2 methods 
+        input_rank = rank_df
+        joined_test = pd.merge(input_rank[input_rank['method'] == methods[0]]
+                               .reset_index()
+                               .rename(columns={'index':'{}_rank'.format(methods[0])})
+                               .drop(columns='method', axis=1),
+                             input_rank[input_rank['method'] == methods[1]]
+                               .reset_index()
+                               .rename(columns={'index':'{}_rank'.format(methods[1])})
+                               .loc[:,['gene',groupby,'{}_rank'.format(methods[1])]],
+                             'inner',
+                             ['gene',groupby])
+
+        # push to s3
+        push_rank (rank_df, f'{prefix}_full', wkdir, s3dir)
+        push_rank (joined_test, f'{prefix}_joined', wkdir, s3dir)
+    
+        return rank_df, joined_test
+    
+
+def symbol2field(genelist, field='summary',species='human'):
+    # wrapper around mygene query
+    # genelist = list of str gene symbols
+    mg = mygene.MyGeneInfo()
+    xli = genelist
+    out = mg.querymany(xli, scopes='symbol', fields='summary', species=species)
+    return out
+
+def gene2plots(input_adata, gene, groupby):
+    
+    # distribution of expression
+    cats, casted_df = prepare_dataframe(input_adata, 
+                                         gene, 
+                                         groupby=groupby)
+
+    melt_df = pd.melt(casted_df.reset_index(), id_vars=groupby)
+
+    plotnine.options.figure_size = (4,4)
+    print(ggplot(melt_df,aes(f'{groupby}','value',color=f'{groupby}'))
+                  +theme_bw()
+                  +theme(aspect_ratio=1,
+                        axis_text_x=element_text(angle=90))
+                  +geom_boxplot()
+                  +stat_summary(aes(group=1), fun_y=np.median, geom='line',color='black')
+                  +labs(y='log expression', x=''))
+
+    # % of cells expressing
+    cell_counts_df = casted_df.reset_index().groupby(groupby).describe().reset_index()
+    gene_binary_df = casted_df[casted_df[gene] > 0].reset_index().groupby(groupby).describe().reset_index()
+
+    df = pd.merge(gene_binary_df, cell_counts_df, 'left', groupby)
+    df['prob'] = df[(f'{gene}_x','count')] /df[(f'{gene}_y','count')]
+    print(ggplot(df.loc[:,[f'{groupby}','prob']])
+                +theme_bw()
+          +theme(aspect_ratio=1,
+                axis_text_x=element_text(angle=90))
+          +geom_line(aes(f'{groupby}','prob',group=1))
+          +geom_point(aes(f'{groupby}','prob',color=f'{groupby}'))
+          +labs(y='proportion of cells expressing', x=''))
+    
+def txn_noise(input_adata, groupby, pre_adata):
+    # Calculates transcription noise as defined by https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6047899/
+    # Updates adata obj inplace with new noise columns for each cell
+    # Input: pre_adata (raw counts table), adata obj, groupby str that identifies categorical metadata field to define group reference
+    # Output: extracted metadata table for plotting and post analysis
+
+    groups=list(set(input_adata.obs[groupby].values))
+    
+    # process raw counts table to extract ERCC counts per cell
+    ercc_df = (pre_adata
+                   .reset_index()
+                   .rename(columns = {'gene_name':'gene'}))
+    ercc_names = [x for x in ercc_df['gene'] if 'ERCC-' in x]
+    ercc_df_T = (ercc_df
+                 .set_index('gene')
+                 .T
+                 .reset_index()
+                 .rename(columns={'index':'cell'}))
+    ercc_df_T.columns = (ercc_df_T
+                         .columns
+                         .get_level_values(0))
+
+    # FOR GENES: preprocess adata obj to calculate group-wise mean expression
+    means_df = (pd.merge((input_adata
+                         .obs[groupby]
+                         .reset_index()
+                         .rename(columns={'index':'cell'})),
+                        (ercc_df_T
+                         .loc[:,[x for x in ercc_df_T.columns if not 'ERCC-' in x]]),
+                        'left',
+                        'cell')
+                .groupby(groupby)
+                .mean()
+                .T)
+    means_df.columns = [f'group_{x}' for x in means_df.columns]
+    means_df = (means_df
+                .reset_index()
+                .rename(columns={'index':'gene'}))
+    
+    # FOR ERCC: preprocess adata obj to calculate group-wise mean expression 
+    means_df_ercc = (pd.merge((input_adata
+                              .obs[groupby]
+                              .reset_index()
+                              .rename(columns={'index':'cell'})),
+                        (ercc_df_T
+                         .loc[:,['cell']+[x for x in ercc_df_T.columns if 'ERCC-' in x]]),
+                        'left',
+                        'cell')
+                     .groupby(groupby)
+                     .mean()
+                     .T)
+    means_df_ercc.columns = [f'group_ercc_{x}' for x in means_df_ercc.columns]
+    means_df_ercc = (means_df_ercc
+                     .reset_index()
+                     .rename(columns={'index':'gene'}))
+    
+    # Merge respective tables => ready for correlations
+    merge_df = pd.merge(means_df, ercc_df,'left','gene')
+    merge_df_ercc = pd.merge(means_df_ercc, ercc_df,'left','gene')
+
+    # Groupby-matched Pearson correlations
+    return_df = pd.DataFrame()
+    for dataset in [merge_df, merge_df_ercc]:
+        dat = (dataset.drop('gene',axis=1))
+        refs = [x for x in dat.columns.tolist() if x.startswith('group')]
+        i_list = [x for x in dat.columns.tolist() if not x.startswith('group')]
+
+        for ref in refs:
+            r_list = []
+            for col in i_list:
+                try:
+                    df = dat[[ref,col]]
+                    df = df.dropna()._get_numeric_data()
+                    r, pval = pearsonr(df[ref], df[col])
+                except:
+                    r, pval = np.nan, np.nan
+
+                r_list.append(r)
+            out_df = pd.DataFrame({ref:r_list})
+            return_df = pd.concat([return_df, out_df], axis=1)
+            
+    # add cell id
+    return_df['cell'] = i_list
+    return_df = pd.merge((input_adata
+                          .obs[groupby]
+                          .reset_index()
+                          .drop(groupby,axis=1)
+                          .rename(columns={'index':'cell'})),
+                     return_df,
+                     'left','cell')
+    
+    # update adata obj
+    for x in groups:
+        return_df[f'noise_{x}'] = (1-return_df[f'group_{x}'])/(1-return_df[f'group_ercc_{x}'])
+        input_adata.obs[f'noise_{x}'] = [j if i == x else np.nan for i,j in zip(input_adata.obs[groupby].tolist(),
+                                                                                return_df[f'noise_{x}'].tolist())]
+    
+    return input_adata
+    
+def s3_crawler(plate_list, s3dir_df, manual_filter = False):
+    # Look for plate_ids in s3 seqbot dirs
+    # Input: plate list
+    # Output: compiled dataframe for all matching cell_plate_idx counts tables
+    
+    #! aws s3 ls s3://czbiohub-seqbot --recursive | awk '{print "s3://czbiohub-seqbot/"$4}' > DL20190114_czbiohubseqbot.txt
+    #! aws s3 ls s3://czb-seqbot --recursive | awk '{print "s3://czb-seqbot/"$4}' > DL20190114_czbseqbot.txt
+    #! for i in DL20190114_czbseqbot.txt DL20190114_czbiohubseqbot.txt; do aws s3 cp $i s3://daniel.le-work/MEL_project/; done
+
+    # filter to only counts tables that match plate id
+
+    plate_dfs = pd.DataFrame()
+    for plate_id in plate_list:
+        
+        # parse path
+        paths = [x for x in s3dir_df.paths if plate_id in x]
+        fname = [x.split('/')[-1] for x in paths]
+        cell = ['_'.join(x.split('_')[:2]) for x in fname]
+        df = pd.DataFrame({'paths':paths,
+                          'fname':fname,
+                          'cell':cell})
+        df = pd.merge(pd.DataFrame({'cell':df['cell'].value_counts().index}),df,'left','cell')
+        df['idx'] = [y for x in df['cell'].value_counts() for y in range(x)]
+        df['plate'] = plate_id
+        redundant_names = [x > 1 for x in df['cell'].value_counts()]
+        
+        # remove redundant module
+        print('{} pre-filter redundant names'.format(sum(redundant_names)))
+        while manual_filter is True and any(redundant_names):
+            for path in df.loc[df.cell == df['cell'].value_counts().index[0]].paths:
+                print(path)
+            print('Input parent s3 path that contains all samples to keep')
+            parent_path = input()
+            df = df[[x.startswith(parent_path) for x in df.paths]]
+            redundant_names = [x > 1 for x in df['cell'].value_counts()]
+        plate_dfs = plate_dfs.append(df)
+        print('Plate {} has {}/{} redundant names'.format(plate_id,
+                                                          sum([x > 0 for x in df.idx]),
+                                                          len(df)))
+    print('Found {} samples in {} plates'.format(len(plate_dfs),
+                                                len(set(plate_dfs.plate))))
+
+    return plate_dfs
+
+def pulls3(args):
+    # Parallizable pull s3 data
+    path, plate, fname, wdkir = args
+    curr_dir = f'{wkdir}/tmp/{plate}'
+        
+    if not os.path.exists(f'{curr_dir}/{fname}'):
+        if not os.path.exists(curr_dir):
+            os.mkdir(curr_dir)
+    
+        cmd = f'aws s3 cp {path} {curr_dir}/'
+        subprocess.run(cmd.split(' '))
+
+def merge_counts(top_dir):
+    # Create big counts table from local tables
+    file_list = [filename for filename in glob.iglob(top_dir + '**/*.txt', recursive=True)]
+    first_df = pd.read_csv(file_list[0], header=None, delimiter='\t')
+    num_row = len(first_df)
+    rownames = first_df.iloc[:,0].tolist()
+    num_col = len(file_list)
+    colnames = []
+    empty_array = np.zeros((num_row, num_col))
+    
+    for idx, file in tqdm.tqdm(enumerate(file_list)):
+        pulled_col = pd.read_csv(file, header=None, delimiter='\t', usecols=[1])
+        colname = '_'.join(file.split('/')[-1].split('_')[:2] + ['0'])
+        if colname in colnames:
+            name_split = colname.split('_')
+            new_idx =  int(name_split[-1]) + 1
+            colname = '_'.join(name_split[:2] + [new_idx])
+        colnames.append(colname)
+        empty_array[:,idx] = pulled_col.values.reshape((len(pulled_col),))
+    
+    # convert numpy to pandas
+    master_df = pd.DataFrame(empty_array)
+    master_df.columns = colnames
+    master_df['gene'] = rownames
+    
+    # remove metadata 
+    master_df = master_df[["__" not in x for x in master_df.gene]]
+    
+    # reset gene col
+    master_df = master_df.set_index('gene').reset_index()
+    
+    return master_df
