@@ -956,3 +956,42 @@ def merge_counts(top_dir):
     master_df = master_df.set_index('gene').reset_index()
     
     return master_df
+
+def true_age_exp(gene, input_adata):
+    groupby = 'patient'
+    var_names = [gene]
+
+    cat, df = prepare_dataframe(input_adata, 
+                      var_names, 
+                      groupby=groupby)
+    df = df.reset_index()
+    age_key = (input_adata
+                 .obs
+                 .loc[:, ['age','patient']]
+                 .reset_index()
+                 .drop('index', axis = 1)
+                 .drop_duplicates())
+
+    df = df.groupby('patient').describe()
+    df.columns = df.columns.levels[1]
+    df = df.reset_index()
+    df = pd.merge(df, age_key,'left','patient')
+
+    print(ggplot(df, aes('age','50%'))
+         +theme_bw() 
+         +geom_pointrange(aes(ymin = '25%', ymax = '75%')) 
+         +labs(y=f'{gene} median log(exp)'))
+    
+def simple_rank (input_adata, methods=['wilcoxon','t-test_overestim_var'],n_genes=20, groupby='louvain'):
+    # Rank genes
+    # Input: ad obj
+    # Output: dataframe of ranked genes
+    
+    return_df = pd.DataFrame()
+    for method in methods:
+        sc.tl.rank_genes_groups(input_adata, groupby=groupby, method=method, n_genes=n_genes)
+        df_rank = pd.DataFrame(input_adata.uns['rank_genes_groups']['names'])
+        df_rank['method'] = method
+        return_df = return_df.append(df_rank.reset_index())
+
+    return return_df
