@@ -769,104 +769,23 @@ def gene2plots(input_adata, gene, groupby):
           +geom_point(aes(f'{groupby}','prob',color=f'{groupby}'))
           +labs(y='proportion of cells expressing', x=''))
     
-def txn_noise(input_adata, groupby, pre_adata):
-    # Calculates transcription noise as defined by https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6047899/
-    # Updates adata obj inplace with new noise columns for each cell
-    # Input: pre_adata (raw counts table), adata obj, groupby str that identifies categorical metadata field to define group reference
-    # Output: extracted metadata table for plotting and post analysis
-
-    groups=list(set(input_adata.obs[groupby].values))
+def rho2_only(x, y):
+    stat,pval = stats.spearmanr(x, y)
+    return stat**2
     
-    # process raw counts table to extract ERCC counts per cell
-    ercc_df = (pre_adata
-                   .reset_index()
-                   .rename(columns = {'gene_name':'gene'}))
-    ercc_names = [x for x in ercc_df['gene'] if 'ERCC-' in x]
-    ercc_df_T = (ercc_df
-                 .set_index('gene')
-                 .T
-                 .reset_index()
-                 .rename(columns={'index':'cell'}))
-    ercc_df_T.columns = (ercc_df_T
-                         .columns
-                         .get_level_values(0))
-
-    # FOR GENES: preprocess adata obj to calculate group-wise mean expression
-    means_df = (pd.merge((input_adata
-                         .obs[groupby]
-                         .reset_index()
-                         .rename(columns={'index':'cell'})),
-                        (ercc_df_T
-                         .loc[:,[x for x in ercc_df_T.columns if not 'ERCC-' in x]]),
-                        'left',
-                        'cell')
-                .groupby(groupby)
-                .mean()
-                .T)
-    means_df.columns = [f'group_{x}' for x in means_df.columns]
-    means_df = (means_df
-                .reset_index()
-                .rename(columns={'index':'gene'}))
-    
-    # FOR ERCC: preprocess adata obj to calculate group-wise mean expression 
-    means_df_ercc = (pd.merge((input_adata
-                              .obs[groupby]
-                              .reset_index()
-                              .rename(columns={'index':'cell'})),
-                        (ercc_df_T
-                         .loc[:,['cell']+[x for x in ercc_df_T.columns if 'ERCC-' in x]]),
-                        'left',
-                        'cell')
-                     .groupby(groupby)
-                     .mean()
-                     .T)
-    means_df_ercc.columns = [f'group_ercc_{x}' for x in means_df_ercc.columns]
-    means_df_ercc = (means_df_ercc
-                     .reset_index()
-                     .rename(columns={'index':'gene'}))
-    
-    # Merge respective tables => ready for correlations
-    merge_df = pd.merge(means_df, ercc_df,'left','gene')
-    merge_df_ercc = pd.merge(means_df_ercc, ercc_df,'left','gene')
-
-    # Groupby-matched Pearson correlations
-    return_df = pd.DataFrame()
-    for dataset in [merge_df, merge_df_ercc]:
-        dat = (dataset.drop('gene',axis=1))
-        refs = [x for x in dat.columns.tolist() if x.startswith('group')]
-        i_list = [x for x in dat.columns.tolist() if not x.startswith('group')]
-
-        for ref in refs:
-            r_list = []
-            for col in i_list:
-                try:
-                    df = dat[[ref,col]]
-                    df = df.dropna()._get_numeric_data()
-                    r, pval = pearsonr(df[ref], df[col])
-                except:
-                    r, pval = np.nan, np.nan
-
-                r_list.append(r)
-            out_df = pd.DataFrame({ref:r_list})
-            return_df = pd.concat([return_df, out_df], axis=1)
-            
-    # add cell id
-    return_df['cell'] = i_list
-    return_df = pd.merge((input_adata
-                          .obs[groupby]
-                          .reset_index()
-                          .drop(groupby,axis=1)
-                          .rename(columns={'index':'cell'})),
-                     return_df,
-                     'left','cell')
-    
-    # update adata obj
-    for x in groups:
-        return_df[f'noise_{x}'] = (1-return_df[f'group_{x}'])/(1-return_df[f'group_ercc_{x}'])
-        input_adata.obs[f'noise_{x}'] = [j if i == x else np.nan for i,j in zip(input_adata.obs[groupby].tolist(),
-                                                                                return_df[f'noise_{x}'].tolist())]
-    
-    return input_adata
+def txn_noise_spearman(cell_list, pre_adata):
+    pre_slice = pre_adata.loc[:,cell_list]
+    gene_slice = pre_slice[[not x.startswith('ERCC-') for x in pre_slice.index]]
+    ercc_slice = pre_slice[[x.startswith('ERCC-') for x in pre_slice.index]]
+    # calculate group means:
+    gene_mean = gene_slice.mean(axis = 1).values
+    ercc_mean = ercc_slice.mean(axis = 1).values
+    # calculate spearmans rho**2
+    gene_rho2 = gene_slice.apply(lambda x: rho2_only(x, gene_mean), axis = 0)
+    ercc_rho2 = ercc_slice.apply(lambda x: rho2_only(x, ercc_mean), axis = 0)
+    # calculate noise
+    noise = (1 - gene_rho2) / (1 - ercc_rho2)
+    return pd.DataFrame(noise).reset_index().rename(columns = {'index':'cell', 0:'noise'})
     
 def s3_crawler(plate_list, s3dir_df, manual_filter = False):
     # Look for plate_ids in s3 seqbot dirs
