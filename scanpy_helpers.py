@@ -899,7 +899,7 @@ def true_age_exp(gene, input_adata):
     print(ggplot(df, aes('age','50%'))
          +theme_bw() 
          +geom_pointrange(aes(ymin = '25%', ymax = '75%')) 
-         +labs(y=f'{gene} median log(exp)'))
+         +labs(y=f'{gene} log(exp)'))
     
 def simple_rank (input_adata, methods=['wilcoxon','t-test_overestim_var'],n_genes=20, groupby='louvain'):
     # Rank genes
