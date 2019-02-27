@@ -22,16 +22,16 @@ counts_table
 
 # create module of gene names
 ```{r}
-module = c('g1','g2')
+module = c('g1','g3')
 module
 ```
 
-# module score: mean of cell-wise percent rank for genes in module
+# module score: mean of gene-wise percent rank (ie among cells) for genes in module
 - cell with highest module expression -> 1
 - cell with lowest module expression -> 0
 ```{r}
-## apply percent rank function to each column (ie cell)
-percentiles_table = cbind(counts_table[1], apply(counts_table[2:ncol(counts_table)], 2, percent_rank))
+## apply percent rank function to each gene (ie among cells)
+percentiles_table = cbind(counts_table[1], apply(counts_table[2:ncol(counts_table)], 1, percent_rank) %>% t())
 
 ## calculate mean percent rank of module genes
 percentiles_table %>% 
@@ -41,4 +41,4 @@ percentiles_table %>%
 ```
 
 # Conclusion
-cell1 has the highest module expression at 0.83, which can interpreted as the mean expression of genes in the module is around 83 percentile.
+cell1 has the highest module score at 0.75, which can be interpreted as the mean gene expression rank is at the 75th percentile.
