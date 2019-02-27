@@ -9,7 +9,7 @@ output: html_document
 library(tidyr)
 library(dplyr)
 
-exp_table = data.frame(gene_A = c(0,1,0,2,0,0,1,0,3,1,2,1,0,0,0,0,1,0,0,1,5,2,1,0,0,3)) %>% mutate(cell_id = LETTERS[1:nrow(.)])
+exp_table = data.frame(gene_A = c(0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0)) %>% mutate(cell_id = LETTERS[1:nrow(.)])
 hist(exp_table$gene_A)
 exp_ecdf = ecdf(exp_table$gene_A)
 plot(exp_ecdf)

@@ -1,0 +1,44 @@
+---
+title: "Module_scoring_demo"
+author: "dan le"
+date: "2/26/2019"
+output: html_document
+---
+
+```{r, setup, results="hide", message=FALSE}
+library(dplyr)
+library(tidyr)
+```
+
+# toy counts table
+```{r}
+counts_table = data.frame(gene = c('g1', 'g2', 'g3','g4'),
+                          cell1 = c(3,2,1,0),
+                          cell2 = c(0,1,2,3),
+                          cell3 = c(1,3,0,2)
+                          )
+counts_table
+```
+
+# create module of gene names
+```{r}
+module = c('g1','g2')
+module
+```
+
+# module score: mean of cell-wise percent rank for genes in module
+- cell with highest module expression -> 1
+- cell with lowest module expression -> 0
+```{r}
+## apply percent rank function to each column (ie cell)
+percentiles_table = cbind(counts_table[1], apply(counts_table[2:ncol(counts_table)], 2, percent_rank))
+
+## calculate mean percent rank of module genes
+percentiles_table %>% 
+  filter(gene %in% module) %>% 
+  select(-gene) %>% 
+  summarise_all(mean)
+```
+
+# Conclusion
+cell1 has the highest module expression at 0.83, which can interpreted as the mean expression of genes in the module is around 83 percentile.
