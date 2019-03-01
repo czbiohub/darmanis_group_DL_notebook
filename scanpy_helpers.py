@@ -174,7 +174,7 @@ def append_anno (adata, anno, anno_dict):
     
     # append metadata of choice
     for key,value in anno_dict.items():
-        adata.obs[key] = eval('anno.{}.values'.format(value))
+        adata.obs[value] = anno[key].values
     
     # summary
     sum_output (adata)

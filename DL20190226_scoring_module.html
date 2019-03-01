@@ -209,30 +209,30 @@ counts_table</code></pre>
 </div>
 <div id="create-module-of-gene-names" class="section level1">
 <h1>create module of gene names</h1>
-<pre class="r"><code>module = c('g1','g2')
+<pre class="r"><code>module = c('g1','g3')
 module</code></pre>
-<pre><code>## [1] &quot;g1&quot; &quot;g2&quot;</code></pre>
+<pre><code>## [1] &quot;g1&quot; &quot;g3&quot;</code></pre>
 </div>
-<div id="module-score-mean-of-cell-wise-percent-rank-for-genes-in-module" class="section level1">
-<h1>module score: mean of cell-wise percent rank for genes in module</h1>
+<div id="module-score-mean-of-gene-wise-percent-rank-ie-among-cells-for-genes-in-module" class="section level1">
+<h1>module score: mean of gene-wise percent rank (ie among cells) for genes in module</h1>
 <ul>
 <li>cell with highest module expression -&gt; 1</li>
 <li>cell with lowest module expression -&gt; 0</li>
 </ul>
-<pre class="r"><code>## apply percent rank function to each column (ie cell)
-percentiles_table = cbind(counts_table[1], apply(counts_table[2:ncol(counts_table)], 2, percent_rank))
+<pre class="r"><code>## apply percent rank function to each gene (ie among cells)
+percentiles_table = cbind(counts_table[1], apply(counts_table[2:ncol(counts_table)], 1, percent_rank) %&gt;% t())
 
 ## calculate mean percent rank of module genes
 percentiles_table %&gt;% 
   filter(gene %in% module) %&gt;% 
   select(-gene) %&gt;% 
   summarise_all(mean)</code></pre>
-<pre><code>##       cell1     cell2     cell3
-## 1 0.8333333 0.1666667 0.6666667</code></pre>
+<pre><code>##   cell1 cell2 cell3
+## 1  0.75   0.5  0.25</code></pre>
 </div>
 <div id="conclusion" class="section level1">
 <h1>Conclusion</h1>
-<p>cell1 has the highest module expression at 0.83, which can interpreted as the mean expression of genes in the module is around 83 percentile.</p>
+<p>cell1 has the highest module score at 0.75, which can be interpreted as the mean gene expression rank is at the 75th percentile.</p>
 </div>
 
 
