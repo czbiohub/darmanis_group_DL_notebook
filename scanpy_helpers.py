@@ -281,7 +281,7 @@ def pca_adata (adata, num_pcs=None, hoods=30):
     print('principle_components(num_pcs): {}\ncells/neighborhood(hoods): {}'.format(num_pcs, hoods))
     sc.pp.neighbors(adata,n_pcs=num_pcs, n_neighbors=hoods)
 
-def umap_adata (adata, res=None):
+def umap_adata (adata, res=None, scan=False):
     # Perform clustering and UMAP
     # Input: adata obj + cluster options (below)
         # res = resolution of community detection
@@ -290,8 +290,9 @@ def umap_adata (adata, res=None):
     print('Uniform manifold approximation and projection...')
     
     # sample resolutions for louvain clustering
-    print('\tScan Louvain detection resolutions')
-    scan_res(adata) 
+    if scan == True:
+        print('\tScan Louvain detection resolutions')
+        scan_res(adata) 
     
     if res is None:
         print('Enter Louvain detection resolution to use:')
