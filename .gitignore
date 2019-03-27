@@ -1,5 +1,6 @@
 # Don't track content of these folders
 /home/ubuntu/git/notebook/cache/
+/home/ubuntu/git/notebook/.ipynb_checkpoints/
 # no html or pdf
 *.html
 *.pdf
