@@ -322,6 +322,34 @@ def calc_adj_pval(pval_list, n_hyp):
 
     return pval_df['adj_pval_bh'].values.tolist()
 
-
+def adata_DE_pairwise(input_adata, 
+                      groupby, 
+                      target_1, 
+                      target_2, 
+                      method = 'wilcoxon',
+                      corr_method = 'benjamini-hochberg'
+                     ):
+    n_genes=len(input_adata.var_names)
+    sc.tl.rank_genes_groups(input_adata, 
+                            groupby=groupby, 
+                            groups=[target_1],
+                            reference=target_2,
+                            method=method,
+                            n_genes = n_genes,
+                            corr_method = corr_method
+                           )
+    genes = [x[0] for x in input_adata.uns['rank_genes_groups']['names']]
+    log2change = [x[0] for x in input_adata.uns['rank_genes_groups']['logfoldchanges']]
+    pvals = [x[0] for x in input_adata.uns['rank_genes_groups']['pvals']]
+    pvals_adj = [x[0] for x in input_adata.uns['rank_genes_groups']['pvals_adj']]
+    
+    results_df = pd.DataFrame({
+        'gene':genes,
+        'log2change':log2change,
+        'pvals':pvals,
+        'pvals_adj':pvals_adj
+    })
+    
+    return results_df
 
                       
