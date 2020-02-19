@@ -329,6 +329,8 @@ def adata_DE_pairwise(input_adata,
                       method = 'wilcoxon',
                       corr_method = 'benjamini-hochberg'
                      ):
+    """This is a two-sided test!"""
+    
     n_genes=len(input_adata.var_names)
     sc.tl.rank_genes_groups(input_adata, 
                             groupby=groupby, 
