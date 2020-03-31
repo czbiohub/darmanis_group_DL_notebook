@@ -61,8 +61,12 @@ def trim_cluster (clust_id, frac=0.33, window=10, minlen=500):
         pos_list=[]
         with pysam.AlignmentFile(inputbam, "rb" ) as bamfile:
             for c in bamfile.pileup(reference=clust_id):
-                cov_list.append(len(c.pileups))
                 pos_list.append(c.reference_pos)
+                real_cov = 0
+                for pileupread in c.pileups:
+                    if not pileupread.is_del and not pileupread.is_refskip:
+                        real_cov += 1
+                cov_list.append(real_cov)
 
             # must have at least 1 read to keep cluster and len greater than minlen
             if any([x>0 for x in cov_list]) and len(pos_list) >= minlen:
