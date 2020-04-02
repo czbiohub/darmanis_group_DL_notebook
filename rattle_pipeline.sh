@@ -13,7 +13,7 @@ mkdir ${outdir} && \
 # subsample
 seqtk sample -s100 \
 ${indir}/${infq} \
-${subn} > ${indir}/subsample.fq && \
+${subn} > ${outdir}/subsample.fq && \
 
 # rattle
 docker run --rm \
@@ -21,10 +21,13 @@ docker run --rm \
 -u $(id -u):$(id -g) \
 rattle \
 /rattle_module.sh \
-${indir}/subsample.fq \
+${outdir}/subsample.fq \
 ${outdir} \
 10 \
 ${ncore} && \
+
+# clear subsample
+rm ${outdir}/subsample.fq && \
 
 # map untrimmed
 docker run --rm \
