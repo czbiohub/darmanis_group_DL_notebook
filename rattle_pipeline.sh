@@ -4,8 +4,7 @@ indir=$1
 infq=$2
 subn=$3
 outdir=$4
-ksize=$5
-ncore=$6
+ncore=$5
 
 # mk output dir
 mkdir ${outdir} && \
