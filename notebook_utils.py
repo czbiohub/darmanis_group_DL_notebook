@@ -17,14 +17,17 @@ import pickle
 import multiprocessing
 import itertools
 import sklearn
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, label_binarize
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import r2_score
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.metrics import r2_score, classification_report, roc_curve, auc, roc_auc_score
+from sklearn.model_selection import train_test_split
+from sklearn.multiclass import OneVsRestClassifier
 import typing
 import random
 from adjustText import adjust_text
 import sys
+
 
 # classes
 class SklearnWrapper:
@@ -251,6 +254,167 @@ def adata_DE_pairwise(input_adata,
         'pvals':pvals,
         'pvals_adj':pvals_adj
     })
+    
+    return results_df
+
+def fast_DE(input_adata, clusterOI, groupby, reference='rest', n_genes=10):
+    """
+    Wrapper for scanpy DE function
+    
+    Input: groupby label, cluster of interest label, referennce label, method name, number of genes
+    outputed
+    Output: gene list
+    """
+    sc.tl.rank_genes_groups(input_adata, 
+                            groupby=groupby, 
+                            groups=[clusterOI], 
+                            method='wilcoxon',
+                            reference=reference,
+                            n_genes = n_genes)
+    gene = [x[0] for x in input_adata.uns['rank_genes_groups']['names']]
+    return gene
+
+def index_max(x):
+    """
+    Returns index of max value in list.
+    
+    Input: List of values
+    Output: Index of max value from input list
+    """
+    return x.index(np.max(x))
+
+def heatmap_sc_plot(merged_adata, gene_order, xplot=8, yplot=6, font=7):
+    """
+    Heatmap plot function for dedifferentiation modules
+    
+    Input: adata, gene list
+    Output: plot
+    """
+    groupby = 'source_label'
+    type_order = ['normal_adult_interfollicular',
+                    'normal_neonatal_interfollicular',
+                    'normal_fetal_interfollicular',
+                    'normal_fetal_follicular',
+                    'cancer_adult_interfollicular',
+                    'cancer_neonatal_interfollicular',
+                    'cancer_fetal_interfollicular',
+                    'cancer_fetal_follicular',     
+                    ]
+    n_cells = 100
+    
+    cat, exp_df = prepare_dataframe(merged_adata,
+                         var_names = merged_adata.var_names.tolist(),
+                         groupby = 'cell')
+    exp_df = exp_df.rank(pct=True, method='dense', axis=1)
+    exp_df = exp_df.loc[:,gene_order]
+    exp_df[groupby] = merged_adata.obs[groupby]
+
+    compiled_rows = pd.DataFrame()
+    type_order_revised = []
+    for x in type_order:
+        df_slice = exp_df[exp_df[groupby] == x]
+        df_nrow = len(df_slice)
+        if df_nrow >= n_cells:
+            df_sample = df_slice.sample(n_cells)
+            num_cell = n_cells
+        else:
+            df_sample = df_slice
+            num_cell = df_nrow
+        idx_list = [x for x in range(len(df_sample))]
+        random.shuffle(idx_list)
+        df_sample['idx'] = idx_list
+        df_sample[groupby] = f'{x} ({num_cell}/{df_nrow})'
+        type_order_revised = type_order_revised + [f'{x} ({num_cell}/{df_nrow})']
+        compiled_rows = compiled_rows.append(df_sample)
+
+    compiled_rows_melt = pd.melt(compiled_rows, id_vars=[groupby,'idx'])
+    compiled_rows_melt[groupby] = (compiled_rows_melt[groupby]
+                                     .astype(str)
+                                     .astype(CategoricalDtype(type_order_revised,
+                                                              ordered=True
+                                                             )
+                                            )
+                                    )
+    compiled_rows_melt['variable'] = (compiled_rows_melt['variable']
+                                     .astype(str)
+                                     .astype(CategoricalDtype(gene_order,
+                                                              ordered=True
+                                                             )
+                                            )
+                                    )
+
+    plotnine.options.figure_size = (xplot,yplot)
+    plot = (ggplot(compiled_rows_melt)
+          + theme_bw()
+          + theme(axis_text_x = element_blank(),
+                  axis_text_y = element_text(size = font),
+                  strip_text_x = element_text(angle = 90, vjust = 0),
+                  strip_background_x = element_rect(fill = 'white', color = 'white') )
+          + geom_tile(aes('idx','variable',fill='value'))
+          + facet_grid(f'~{groupby}', scales='free')
+          + scale_fill_cmap(heatmap_cmap)
+          + labs(x = '', y = ''))
+
+    print(plot)
+    
+def heatmap_wilcoxon(merged_adata, gl, target_cancer=True, xplot=8, yplot=6, font=7, alpha = 0.05):
+    """
+    Bar plot function for dedifferentiation module wilcoxon test p-values
+    
+    Input: adata, gene list
+    Output: plot and results dataframe
+    """
+    results_df = pd.DataFrame()
+    for varval in varvals:
+        if target_cancer == True:
+            group1 = f'cancer_{varval}'
+            group2 = f'normal_{varval}'
+        else:
+            group2 = f'cancer_{varval}'
+            group1 = f'normal_{varval}'
+        results_slice = adata_DE_pairwise(merged_adata[:, gl], 
+                                      'source_label', 
+                                      group1, # right group
+                                      group2, # left group
+                                     )
+        results_slice['varval'] = varval
+        results_slice['neglog10_pvals_adj'] = -np.log10(results_slice['pvals_adj'])
+        results_df = results_df.append(results_slice)
+        
+    if target_cancer == False:
+        results_df['log2change'] = -results_df['log2change']
+
+    results_df['varval'] = (results_df['varval']
+                            .astype(str)
+                            .astype(CategoricalDtype(varvals, ordered = True))
+                           )
+    results_df['gene'] = (results_df['gene']
+                        .astype(str)
+                        .astype(CategoricalDtype(gl, ordered = True))
+                       )    
+
+    ylimval = np.max(np.abs(results_df['log2change']))
+    label_df = results_df[results_df['neglog10_pvals_adj'] <= -np.log10(alpha)]
+
+    plotnine.options.figure_size = (xplot,yplot)
+    plot = (ggplot(results_df)
+                + theme_bw()
+                + theme(axis_text_x = element_text(size=font),
+                        strip_text_x = element_text(angle = 90, vjust = 0),
+                        strip_background_x = element_rect(fill = 'white', color = 'white')
+                       )
+                + geom_bar(aes('gene','log2change',fill='neglog10_pvals_adj'), stat='identity')
+                + geom_hline(aes(yintercept = 0))
+                + coord_flip()
+                + facet_grid('.~varval')
+                + ylim([-ylimval,ylimval])
+                + scale_fill_cmap('cool')
+                + labs(x='')
+               )
+    if len(label_df) > 0:
+        plot = plot + geom_label(label_df,
+                             aes('gene', 0), label='n.s.', size=font)
+    print(plot)
     
     return results_df
 
