@@ -10,6 +10,7 @@ from plotnine import *
 import plotnine
 import scipy
 from scipy import sparse, stats
+from scipy.cluster import hierarchy
 import glob
 import more_itertools as mit
 import tqdm
@@ -27,6 +28,11 @@ import typing
 import random
 from adjustText import adjust_text
 import sys
+import lifelines
+from lifelines import KaplanMeierFitter
+from lifelines.statistics import logrank_test
+import matplotlib as mp
+import matplotlib.pyplot as plt
 
 
 # classes
@@ -417,6 +423,25 @@ def heatmap_wilcoxon(merged_adata, gl, target_cancer=True, xplot=8, yplot=6, fon
     print(plot)
     
     return results_df
+
+def rect_converter(df, xval, yval, y_upper, y_lower, grouping):
+    """
+    Covert survival dataframe to ammenable to step plot
+    
+    Input: survival dataframe
+    Output: updated dataframe
+    """
+    master = pd.DataFrame()
+    for label in set(df[grouping]):
+        reassign = pd.DataFrame()
+        df_slice = df[df[grouping] == label]
+        reassign['xmin'] = df_slice[xval].shift(-1).tolist()
+        reassign['xmax'] = df_slice[xval].tolist()
+        reassign['ymin'] = df_slice[y_lower].tolist()
+        reassign['ymax'] = df_slice[y_upper].tolist()
+        reassign['label'] = label
+        master = master.append(reassign[:-1])
+    return master.dropna()
 
 
 # Global variables
