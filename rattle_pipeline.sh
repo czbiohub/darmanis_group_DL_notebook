@@ -5,6 +5,7 @@ infq=$2
 subn=$3
 outdir=$4
 ncore=$5
+mode=$6
 
 # mk output dir
 mkdir ${outdir} && \
@@ -22,8 +23,8 @@ rattle \
 /rattle_module.sh \
 ${outdir}/subsample.fq \
 ${outdir} \
-10 \
-${ncore} && \
+${ncore} \
+${mode} && \
 
 # clear subsample
 rm ${outdir}/subsample.fq && \
